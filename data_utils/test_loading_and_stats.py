@@ -19,7 +19,7 @@ parser.add_argument('--train_test_split','-tts',action='store_true')
 script_arguments = parser.parse_args()
 
 
-input_folder = "/media/mmlab/Volume/truebees/TrueFace/Train/TrueFace_PreSocial/"
+input_folder = "/media/mmlab/Volume/truebees/TrueFace/Train/TrueFace_PostSocial/"
 
 toTensor = transforms.ToTensor()
 normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406],

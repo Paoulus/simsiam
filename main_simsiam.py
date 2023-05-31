@@ -31,6 +31,7 @@ import simsiam.loader
 import simsiam.builder
 
 import data_utils.trueface_dataset as trueface_dataset
+import data_utils.augmentations as augmentations
 
 model_names = sorted(name for name in models.__dict__
     if name.islower() and not name.startswith("__")
@@ -230,7 +231,6 @@ def main_worker(gpu, ngpus_per_node, args):
 
     # MoCo v2's aug: similar to SimCLR https://arxiv.org/abs/2002.05709
     augmentation = [
-        transforms.RandomResizedCrop(224, scale=(0.2, 1.)),
         transforms.RandomApply([
             transforms.ColorJitter(0.4, 0.4, 0.4, 0.1)  # not strengthened
         ], p=0.8),
@@ -243,9 +243,11 @@ def main_worker(gpu, ngpus_per_node, args):
 
     train_dataset = trueface_dataset.TruefaceTotal(
         traindir,
-        simsiam.loader.TwoCropsTransform(transforms.Compose(augmentation)),
-        real_amount=500,
-        fake_amount=500)
+        augmentations.ApplyDifferentTransforms(
+            transforms.Compose([transforms.ToTensor(),normalize]),
+            transforms.Compose(augmentation)),
+        real_amount=30,
+        fake_amount=30)
 
     if args.distributed:
         train_sampler = torch.utils.data.distributed.DistributedSampler(train_dataset)

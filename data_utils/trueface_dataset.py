@@ -20,6 +20,8 @@ class TruefaceTotal(datasets.DatasetFolder):
         rand_generator = random.Random(seed)
 
         for dirpath, dirnames, filenames in os.walk(path, topdown=True):
+            exclude = set(['code', 'tmp', 'dataStyleGAN2','Facebook'])
+            dirnames[:] = [d for d in dirnames if d not in exclude]
             if 'FFHQ' in dirpath or 'Real' in dirpath or '0_Real' in dirpath:
                 for file in sorted(filenames):
                         if (file.endswith(".png") or file.endswith(".jpg") or file.endswith(".jpeg")):
@@ -27,9 +29,7 @@ class TruefaceTotal(datasets.DatasetFolder):
                             self.real_images.append(item)
                             self.real_images_count += 1
             elif ((('StyleGAN' in dirpath or 'StyleGAN2' in dirpath)) or 'Fake' in dirpath or '1_Fake' in dirpath):
-                exclude = set(['code', 'tmp', 'dataStyleGAN2'])
                 files_in_folder = []
-                dirnames[:] = [d for d in dirnames if d not in exclude]
                 for file in sorted(filenames):
                     if (file.endswith(".png") or file.endswith(".jpg") or file.endswith(".jpeg")) and (self.downsample_fake_samples % 5 == 0):
                         item = os.path.join(dirpath, file), 1
