@@ -30,7 +30,7 @@ import torchvision.models as models
 import simsiam.loader
 import simsiam.builder
 
-import data_utils.tuningDatabase as tuningDatabase
+import data_utils.trueface_dataset as trueface_dataset
 
 model_names = sorted(name for name in models.__dict__
     if name.islower() and not name.startswith("__")
@@ -241,7 +241,7 @@ def main_worker(gpu, ngpus_per_node, args):
         normalize
     ]
 
-    train_dataset = tuningDatabase.TuningDatabaseWithRandomSampling(
+    train_dataset = trueface_dataset.TruefaceTotal(
         traindir,
         simsiam.loader.TwoCropsTransform(transforms.Compose(augmentation)),
         real_amount=500,
