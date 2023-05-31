@@ -16,6 +16,7 @@ parser.add_argument('--images','-i',action='store_true')
 parser.add_argument('--dataset_samples','-ds',action='store_true')
 parser.add_argument('--dataloader_samples','-dl',action='store_true')
 parser.add_argument('--train_test_split','-tts',action='store_true')
+parser.add_argument('--list_train_set',action='store_true')
 script_arguments = parser.parse_args()
 
 
@@ -127,3 +128,8 @@ if script_arguments.dataloader_samples:
         for i, (images, labels) in enumerate(total_dataloader):
             print("Batch {}/{}".format(i,batches))
             print(labels)
+
+if script_arguments.list_train_set:
+    print("Instantiating and listing the train set")
+
+    train_set = trueface_dataset.TrainSet()
