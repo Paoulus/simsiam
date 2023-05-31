@@ -243,7 +243,9 @@ def main_worker(gpu, ngpus_per_node, args):
 
     train_dataset = tuningDatabase.TuningDatabaseWithRandomSampling(
         traindir,
-        simsiam.loader.TwoCropsTransform(transforms.Compose(augmentation)))
+        simsiam.loader.TwoCropsTransform(transforms.Compose(augmentation)),
+        real_amount=500,
+        fake_amount=500)
 
     if args.distributed:
         train_sampler = torch.utils.data.distributed.DistributedSampler(train_dataset)
