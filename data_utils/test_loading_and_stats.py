@@ -4,7 +4,7 @@ from pathlib import Path
 import torch
 from torchvision import transforms
 
-from trueface_dataset import TruefaceTotal
+import trueface_dataset
 
 parser = argparse.ArgumentParser(
     description="Script for testing the loading of the data",
@@ -17,6 +17,7 @@ parser.add_argument('--dataset_samples','-ds',action='store_true')
 parser.add_argument('--dataloader_samples','-dl',action='store_true')
 parser.add_argument('--train_test_split','-tts',action='store_true')
 parser.add_argument('--list_train_set',action='store_true')
+parser.add_argument('--list_pre_and_post_set',action='store_true')
 script_arguments = parser.parse_args()
 
 
@@ -26,7 +27,7 @@ toTensor = transforms.ToTensor()
 normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406],
                                     std=[0.229, 0.224, 0.225])
 
-total_dataset = TruefaceTotal(input_folder,
+total_dataset = trueface_dataset.TruefaceTotal(input_folder,
                               transforms.Compose([toTensor,normalize]),
                               seed=13776321,
                               real_amount=70,
@@ -132,4 +133,33 @@ if script_arguments.dataloader_samples:
 if script_arguments.list_train_set:
     print("Instantiating and listing the train set")
 
-    train_set = trueface_dataset.TrainSet()
+    train_ds, test_ds = total_dataset.get_train_and_test_splits(5098)
+    print("Train set")
+    for path in train_ds.samples:
+        print(path)
+    print("Test set")
+    for path in test_ds.samples:
+        print(path)
+
+    #verify that the two datasets are disjointed
+    for path in test_ds.samples:
+        if path in train_ds.samples:
+            print("Train and test are not disjointed!")
+
+if script_arguments.list_pre_and_post_set:
+    print("Listing pre and post set")
+
+    # is different because it contains tuples of images, where the first one is the pre social
+    # and the second one contains the correspondant post social picture for a given social network
+    # max number of fake samples is 1800, due to how the IDs are organized. is this a problem? we have to 
+    # validate this a bit better
+    pre_and_post_ds = trueface_dataset.PreAndPostDataset("Telegram",None,1800,1800)
+    pre_and_post_ds = trueface_dataset.PreAndPostDataset("Facebook",None,1800,1800)
+    pre_and_post_ds = trueface_dataset.PreAndPostDataset("Twitter",None,1800,1800)
+    pre_and_post_ds = trueface_dataset.PreAndPostDataset("Whatsapp",None,1800,1800)
+
+    with open("../output-listing-pre-and-post.log","w") as log_file:
+        for images, label in pre_and_post_ds:
+            print(images)
+            print("Presoc: {}".format(images[0].filename),file=log_file)
+            print("Postsoc: {}".format(images[1].filename),file=log_file)
