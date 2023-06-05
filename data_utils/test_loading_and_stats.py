@@ -18,6 +18,7 @@ parser.add_argument('--dataloader_samples','-dl',action='store_true')
 parser.add_argument('--train_test_split','-tts',action='store_true')
 parser.add_argument('--list_train_set',action='store_true')
 parser.add_argument('--list_pre_and_post_set',action='store_true')
+parser.add_argument("--test_and_val_split",action="store_true")
 script_arguments = parser.parse_args()
 
 
@@ -112,6 +113,13 @@ if script_arguments.dataset_samples:
 
     print("Real labels: {}".format(real_labels_count))
     print("Fake labels: {}".format(fake_labels_count))
+
+if script_arguments.test_and_val_split:
+    train_dataset, val_dataset = total_dataset.split_into_train_val(0.2)
+    #verify that the two datasets are disjointed
+    for path in train_dataset.samples:
+        if path in val_dataset.samples:
+            print("Train and val are not disjointed!")
 
 if script_arguments.images:
     print("Testing images loading; will print a couple of image tensors")

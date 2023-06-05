@@ -33,6 +33,8 @@ import simsiam.builder
 import data_utils.trueface_dataset as trueface_dataset
 import data_utils.augmentations as augmentations
 
+import wandb
+
 model_names = sorted(name for name in models.__dict__
     if name.islower() and not name.startswith("__")
     and callable(models.__dict__[name]))
@@ -85,6 +87,9 @@ parser.add_argument('--multiprocessing-distributed', action='store_true',
                          'fastest way to use PyTorch for either single node or '
                          'multi node data parallel training')
 parser.add_argument("--save-checkpoints", action="store_true")
+parser.add_argument('--real-amount', default=None, type=int)
+parser.add_argument('--fake-amount', default=None, type=int)
+parser.add_argument('--run-suffix', default="", type=str)
 
 # simsiam specific configs:
 parser.add_argument('--dim', default=2048, type=int,
@@ -116,6 +121,38 @@ def main():
 
     args.distributed = args.world_size > 1 or args.multiprocessing_distributed
 
+    # format for run name: dataset dataset size batch size 
+
+    ds_size = args.real_amount + args.fake_amount
+    ds_size_string = str(math.trunc(ds_size))
+    if math.log10(ds_size) > 3:
+        ds_size_string  = ds_size_string + "K"
+    
+
+    run_name = "{} {} batch {} {}"
+    run_suffix = args.run_suffix
+    run_name = run_name.format("trueface/pre",ds_size_string, args.batch_size, run_suffix)
+
+    wandb_run = wandb.init(
+        # set the wandb project where this run will be logged
+        project="training-simsiam-trueface",
+        
+        name=run_name,
+
+        # track hyperparameters and run metadata
+        config={
+        "learning_rate": args.lr,
+        "architecture": "SimSiam",
+        "optimizer":"SGD",
+        "dataset": "trueface/pre",
+        "epochs": args.epochs,
+        "batch_size":args.batch_size,
+        "real_samples_amount":args.real_amount,
+        "fake_samples_amount":args.fake_amount,
+        "is distributed":args.multiprocessing_distributed
+        }
+    )
+
     ngpus_per_node = torch.cuda.device_count()
     if args.multiprocessing_distributed:
         # Since we have ngpus_per_node processes per node, the total world_size
@@ -127,6 +164,8 @@ def main():
     else:
         # Simply call main_worker function
         main_worker(args.gpu, ngpus_per_node, args)
+    
+    wandb.finish()
 
 
 def main_worker(gpu, ngpus_per_node, args):
@@ -235,19 +274,20 @@ def main_worker(gpu, ngpus_per_node, args):
             transforms.ColorJitter(0.4, 0.4, 0.4, 0.1)  # not strengthened
         ], p=0.8),
         transforms.RandomGrayscale(p=0.2),
-        transforms.RandomApply([simsiam.loader.GaussianBlur([.1, 2.])], p=0.5),
         transforms.RandomHorizontalFlip(),
         transforms.ToTensor(),
         normalize
     ]
 
-    train_dataset = trueface_dataset.TruefaceTotal(
+    total_dataset = trueface_dataset.TruefaceTotal(
         traindir,
         augmentations.ApplyDifferentTransforms(
             transforms.Compose([transforms.ToTensor(),normalize]),
             transforms.Compose(augmentation)),
-        real_amount=30,
-        fake_amount=30)
+        real_amount=args.real_amount,
+        fake_amount=args.fake_amount)
+
+    train_dataset, val_dataset = total_dataset.split_into_train_val(0.2)
 
     if args.distributed:
         train_sampler = torch.utils.data.distributed.DistributedSampler(train_dataset)
@@ -256,7 +296,10 @@ def main_worker(gpu, ngpus_per_node, args):
 
     train_loader = torch.utils.data.DataLoader(
         train_dataset, batch_size=args.batch_size, shuffle=(train_sampler is None),
-        num_workers=args.workers, pin_memory=True, sampler=train_sampler, drop_last=True)
+        num_workers=args.workers, pin_memory=False, sampler=train_sampler, drop_last=True)
+
+    val_loader = torch.utils.data.DataLoader(
+        val_dataset,batch_size=4,num_workers=args.workers, pin_memory=False, drop_last=True)
 
     for epoch in range(args.start_epoch, args.epochs):
         if args.distributed:
@@ -264,7 +307,16 @@ def main_worker(gpu, ngpus_per_node, args):
         adjust_learning_rate(optimizer, init_lr, epoch, args)
 
         # train for one epoch
-        train(train_loader, model, criterion, optimizer, epoch, args)
+        train_wandb_metrics = train(train_loader, model, criterion, optimizer, epoch, args)
+
+        # validate the model in the current epoch
+        val_wandb_metrics = validate(val_loader,model,criterion,args)
+
+        # put both metrics in the same database, as it's much cleaner if we log everything
+        # with a single wandb.log() call
+        train_wandb_metrics.update(val_wandb_metrics)
+
+        wandb.log(train_wandb_metrics)
 
         if (not args.multiprocessing_distributed or (args.multiprocessing_distributed
                 and args.rank % ngpus_per_node == 0)) and args.save_checkpoints:
@@ -311,10 +363,34 @@ def train(train_loader, model, criterion, optimizer, epoch, args):
         # measure elapsed time
         batch_time.update(time.time() - end)
         end = time.time()
-
         if i % args.print_freq == 0:
             progress.display(i)
 
+    return {"train/mean_loss":losses.avg}
+
+def validate(val_loader,model,criterion,args):
+    model.eval()
+    with torch.no_grad():
+        corrects = 0
+        validation_losses = AverageMeter("Val loss")
+        for i , (images, labels) in enumerate(val_loader):
+            if args.gpu is not None:
+                images[0] = images[0].cuda(args.gpu, non_blocking=True)
+                images[1] = images[1].cuda(args.gpu, non_blocking=True)
+            
+            # compute output and loss
+            p1, p2, z1, z2 = model(x1=images[0], x2=images[1])
+            loss = -(criterion(p1, z2).mean() + criterion(p2, z1).mean()) * 0.5
+            validation_losses.update(loss.item(),images[0].size(0))
+
+            # determine the assigned label from the logits for accuracy
+            labels = labels.cuda(args.gpu,non_blocking=True)
+            pred_label = torch.argmax(p1,dim=1)
+            corrects += torch.sum(torch.eq(labels,pred_label)).item()
+        accuracy = corrects / len(val_loader.dataset)
+        metrics = {"validation/mean_loss":validation_losses.avg,
+                  "validation/accuracy":accuracy}
+        return metrics
 
 def save_checkpoint(state, is_best, filename='checkpoint.pth.tar'):
     torch.save(state, filename)

@@ -56,6 +56,14 @@ class TruefaceTotal(datasets.DatasetFolder):
         self.fake_images = rand_generator.sample(self.fake_images,fake_amount)
         self.samples = self.real_images + self.fake_images
         
+        self.samples = rand_generator.sample(self.samples, len(self.samples))
+
+    def split_into_train_val(self,val_proportion=0.2):
+        val_split_size = int(len(self.samples)*val_proportion)
+        val_dataset = DatasetFromSamples(self.samples[0:val_split_size],self.transform)
+        train_dataset = DatasetFromSamples(self.samples[val_split_size:],self.transform)
+        return train_dataset,val_dataset
+
     def __len__(self):
         return len(self.samples)
 
@@ -83,16 +91,15 @@ class TruefaceTotal(datasets.DatasetFolder):
         train_set = extractor.sample(self.samples,train_size)
         test_set = list(set(self.samples) - set(train_set))
 
-        return DatabaseFromSamples(train_set), DatabaseFromSamples(test_set)
+        return DatasetFromSamples(train_set), DatasetFromSamples(test_set)
 
-
-class DatabaseFromSamples(TruefaceTotal):
+class DatasetFromSamples(TruefaceTotal):
     def __init__(self,samples,transform=None):
         self.classes = ["real","generated"]
         self.samples = samples
         self.transform = transform
 
-class DatabaseFromFile(TruefaceTotal):
+class DatasetFromFile(TruefaceTotal):
     def __init__(self,samples_file_path,transform=None):
         self.classes = ["real","generated"]
         self.samples = []
