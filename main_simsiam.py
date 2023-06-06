@@ -124,9 +124,12 @@ def main():
     # format for run name: dataset dataset size batch size 
 
     ds_size = args.real_amount + args.fake_amount
-    ds_size_string = str(math.trunc(ds_size))
+    ds_size_string = ""
     if math.log10(ds_size) > 3:
-        ds_size_string  = ds_size_string + "K"
+        ds_size = math.trunc(ds_size / 1000)
+        ds_size_string  = str(ds_size) + "K"
+    else:
+        ds_size_string = str(ds_size)
     
 
     run_name = "{} {} batch {} {}"
@@ -197,7 +200,8 @@ def main_worker(gpu, ngpus_per_node, args):
         args.dim, args.pred_dim)
 
     # infer learning rate before changing batch size
-    init_lr = args.lr * args.batch_size / 256
+    #init_lr = args.lr * args.batch_size / 256
+    init_lr = args.lr       # try with direct control of lr due to small batch size
 
     if args.distributed:
         # Apply SyncBN
@@ -268,13 +272,9 @@ def main_worker(gpu, ngpus_per_node, args):
     normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406],
                                      std=[0.229, 0.224, 0.225])
 
-    # MoCo v2's aug: similar to SimCLR https://arxiv.org/abs/2002.05709
+    # custom augmentation meant to simulate the changes applied by image post processing
     augmentation = [
-        transforms.RandomApply([
-            transforms.ColorJitter(0.4, 0.4, 0.4, 0.1)  # not strengthened
-        ], p=0.8),
-        transforms.RandomGrayscale(p=0.2),
-        transforms.RandomHorizontalFlip(),
+        augmentations.CompressToJPEG(),
         transforms.ToTensor(),
         normalize
     ]
@@ -316,6 +316,11 @@ def main_worker(gpu, ngpus_per_node, args):
         # with a single wandb.log() call
         train_wandb_metrics.update(val_wandb_metrics)
 
+        print("Epoch metrics:")
+        for key,value in train_wandb_metrics.items():
+            print("{} : {}".format(key,value))
+        print("-"*10)
+
         wandb.log(train_wandb_metrics)
 
         if (not args.multiprocessing_distributed or (args.multiprocessing_distributed
@@ -341,7 +346,8 @@ def train(train_loader, model, criterion, optimizer, epoch, args):
     model.train()
 
     end = time.time()
-    for i, (images, _) in enumerate(train_loader):
+    corrects = 0
+    for i, (images, labels) in enumerate(train_loader):
         # measure data loading time
         data_time.update(time.time() - end)
 
@@ -355,6 +361,11 @@ def train(train_loader, model, criterion, optimizer, epoch, args):
 
         losses.update(loss.item(), images[0].size(0))
 
+        # determine the assigned label from the logits for accuracy
+        labels = labels.cuda(args.gpu,non_blocking=True)
+        pred_label = torch.argmax(p1,dim=1)
+        corrects += torch.sum(torch.eq(labels,pred_label)).item()
+        
         # compute gradient and do SGD step
         optimizer.zero_grad()
         loss.backward()
@@ -366,7 +377,9 @@ def train(train_loader, model, criterion, optimizer, epoch, args):
         if i % args.print_freq == 0:
             progress.display(i)
 
-    return {"train/mean_loss":losses.avg}
+    accuracy = corrects / len(train_loader.dataset)
+    return {"train/mean_loss":losses.avg,
+            "train/accuracy":accuracy}
 
 def validate(val_loader,model,criterion,args):
     model.eval()
@@ -396,7 +409,6 @@ def save_checkpoint(state, is_best, filename='checkpoint.pth.tar'):
     torch.save(state, filename)
     if is_best:
         shutil.copyfile(filename, 'model_best.pth.tar')
-
 
 class AverageMeter(object):
     """Computes and stores the average and current value"""
