@@ -22,3 +22,17 @@ class CompressToJPEG:
         x.save(compressed_buffer,format='JPEG')
         x = Image.open(compressed_buffer,formats=['JPEG'])
         return x
+    
+class CompressToJPEGWithRandomParams:
+    def __init__(self):
+        pass
+
+    def __call__(self,x):
+        rand_quality = random.randint(75,90)
+        rand_qtables_preset = random.choice(['web_low','web_high'])
+        compressed_buffer = io.BytesIO()
+        x.save(compressed_buffer,format='JPEG',
+                       quality=rand_quality,
+                       qtables=rand_qtables_preset)
+        x = Image.open(compressed_buffer,formats=['JPEG'])
+        return x

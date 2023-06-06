@@ -274,7 +274,9 @@ def main_worker(gpu, ngpus_per_node, args):
 
     # custom augmentation meant to simulate the changes applied by image post processing
     augmentation = [
-        augmentations.CompressToJPEG(),
+        transforms.RandomCrop(224,pad_if_needed=True),
+        transforms.RandomHorizontalFlip(),
+        augmentations.CompressToJPEGWithRandomParams(),
         transforms.ToTensor(),
         normalize
     ]
@@ -310,7 +312,7 @@ def main_worker(gpu, ngpus_per_node, args):
         train_wandb_metrics = train(train_loader, model, criterion, optimizer, epoch, args)
 
         # validate the model in the current epoch
-        val_wandb_metrics = validate(val_loader,model,criterion,args)
+        val_wandb_metrics, metrics_to_accumulate = validate(val_loader,model,criterion,args)
 
         # put both metrics in the same database, as it's much cleaner if we log everything
         # with a single wandb.log() call
@@ -330,8 +332,15 @@ def main_worker(gpu, ngpus_per_node, args):
                 'arch': args.arch,
                 'state_dict': model.state_dict(),
                 'optimizer' : optimizer.state_dict(),
-            }, is_best=False, filename='checkpoint_{:04d}.pth.tar'.format(epoch))
+            }, is_best=False, filename='../simsiam-trained-models/checkpoint_{:04d}.pth.tar'.format(epoch))
 
+        real_table = wandb.Table(data=metrics_to_accumulate["validation/scatter_real"],
+                                    columns=["p1_0","p1_1"])
+        fake_table = wandb.Table(data=metrics_to_accumulate["validation/scatter_fake"],
+                                    columns=["p1_0","p1_1"])
+        
+        wandb.log({"real_scatter_plot":wandb.plot.scatter(real_table,"p1_0","p1_1",title="Real logits epoch {}".format(epoch))})
+        wandb.log({"fake_scatter_plot":wandb.plot.scatter(fake_table,"p1_0","p1_1",title="Fake logits epoch {}".format(epoch))})
 
 def train(train_loader, model, criterion, optimizer, epoch, args):
     batch_time = AverageMeter('Time', ':6.3f')
@@ -385,6 +394,8 @@ def validate(val_loader,model,criterion,args):
     model.eval()
     with torch.no_grad():
         corrects = 0
+        data_real = []
+        data_fake = []
         validation_losses = AverageMeter("Val loss")
         for i , (images, labels) in enumerate(val_loader):
             if args.gpu is not None:
@@ -400,10 +411,22 @@ def validate(val_loader,model,criterion,args):
             labels = labels.cuda(args.gpu,non_blocking=True)
             pred_label = torch.argmax(p1,dim=1)
             corrects += torch.sum(torch.eq(labels,pred_label)).item()
+
+            for pred_index, pred in enumerate(p1):
+                pred_as_list = pred.cpu().numpy().tolist()
+                if labels[pred_index] == 0:
+                    data_fake.append(pred_as_list)
+                else:
+                    data_real.append(pred_as_list)
+
         accuracy = corrects / len(val_loader.dataset)
+         
         metrics = {"validation/mean_loss":validation_losses.avg,
                   "validation/accuracy":accuracy}
-        return metrics
+        entire_epoch_metrics = {
+                "validation/scatter_real":data_real,
+                "validation/scatter_fake":data_fake}
+        return metrics , entire_epoch_metrics
 
 def save_checkpoint(state, is_best, filename='checkpoint.pth.tar'):
     torch.save(state, filename)

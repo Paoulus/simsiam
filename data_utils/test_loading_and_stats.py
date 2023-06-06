@@ -22,7 +22,7 @@ parser.add_argument("--test_and_val_split",action="store_true")
 script_arguments = parser.parse_args()
 
 
-input_folder = "/media/mmlab/Volume/truebees/TrueFace/Train/TrueFace_PostSocial/"
+input_folder = "/media/mmlab/Volume/truebees/TrueFace/Train/TrueFace_PreSocial/"
 
 toTensor = transforms.ToTensor()
 normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406],
@@ -31,8 +31,8 @@ normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406],
 total_dataset = trueface_dataset.TruefaceTotal(input_folder,
                               transforms.Compose([toTensor,normalize]),
                               seed=13776321,
-                              real_amount=70,
-                              fake_amount=70)
+                              real_amount=2000,
+                              fake_amount=2000)
 
 print("Total dataset length is: {}".format(len(total_dataset)))
 
@@ -43,7 +43,6 @@ total_dataloader = torch.utils.data.DataLoader(total_dataset,
                 shuffle=(total_sampler is None),
                 num_workers=8, 
                 pin_memory=True, 
-                sampler=total_sampler, 
                 drop_last=True)
 
 print("Total dataloader lenght is: {}".format(len(total_dataloader)))

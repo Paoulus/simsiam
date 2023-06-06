@@ -27,6 +27,8 @@ import torchvision.transforms as transforms
 import torchvision.datasets as datasets
 import torchvision.models as models
 
+import data_utils.trueface_dataset as trueface_dataset
+
 model_names = sorted(name for name in models.__dict__
     if name.islower() and not name.startswith("__")
     and callable(models.__dict__[name]))
@@ -80,6 +82,8 @@ parser.add_argument('--multiprocessing-distributed', action='store_true',
                          'N processes per node, which has N GPUs. This is the '
                          'fastest way to use PyTorch for either single node or '
                          'multi node data parallel training')
+parser.add_argument('--real-amount', default=None, type=int)
+parser.add_argument('--fake-amount', default=None, type=int)
 
 # additional configs:
 parser.add_argument('--pretrained', default='', type=str,
@@ -170,9 +174,9 @@ def main_worker(gpu, ngpus_per_node, args):
             state_dict = checkpoint['state_dict']
             for k in list(state_dict.keys()):
                 # retain only encoder up to before the embedding layer
-                if k.startswith('module.encoder') and not k.startswith('module.encoder.fc'):
+                if k.startswith('encoder') and not k.startswith('encoder.fc'):
                     # remove prefix
-                    state_dict[k[len("module.encoder."):]] = state_dict[k]
+                    state_dict[k[len("encoder."):]] = state_dict[k]
                 # delete renamed or unused k
                 del state_dict[k]
 
@@ -226,10 +230,10 @@ def main_worker(gpu, ngpus_per_node, args):
     optimizer = torch.optim.SGD(parameters, init_lr,
                                 momentum=args.momentum,
                                 weight_decay=args.weight_decay)
-    if args.lars:
-        print("=> use LARS optimizer.")
-        from apex.parallel.LARC import LARC
-        optimizer = LARC(optimizer=optimizer, trust_coefficient=.001, clip=False)
+    # if args.lars:
+    #    print("=> use LARS optimizer.")
+    #    from apex.parallel.LARC import LARC
+    #    optimizer = LARC(optimizer=optimizer, trust_coefficient=.001, clip=False)
 
     # optionally resume from a checkpoint
     if args.resume:
@@ -256,19 +260,19 @@ def main_worker(gpu, ngpus_per_node, args):
     cudnn.benchmark = True
 
     # Data loading code
-    traindir = os.path.join(args.data, 'train')
-    valdir = os.path.join(args.data, 'val')
     normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406],
                                      std=[0.229, 0.224, 0.225])
 
-    train_dataset = datasets.ImageFolder(
-        traindir,
+    total_dataset = trueface_dataset.TruefaceTotal(
+        args.data,
         transforms.Compose([
             transforms.RandomResizedCrop(224),
             transforms.RandomHorizontalFlip(),
             transforms.ToTensor(),
             normalize,
         ]))
+
+    train_dataset, val_dataset = total_dataset.split_into_train_val(0.2)
 
     if args.distributed:
         train_sampler = torch.utils.data.distributed.DistributedSampler(train_dataset)
@@ -280,12 +284,7 @@ def main_worker(gpu, ngpus_per_node, args):
         num_workers=args.workers, pin_memory=True, sampler=train_sampler)
 
     val_loader = torch.utils.data.DataLoader(
-        datasets.ImageFolder(valdir, transforms.Compose([
-            transforms.Resize(256),
-            transforms.CenterCrop(224),
-            transforms.ToTensor(),
-            normalize,
-        ])),
+        val_dataset,
         batch_size=256, shuffle=False,
         num_workers=args.workers, pin_memory=True)
 
@@ -417,7 +416,7 @@ def validate(val_loader, model, criterion, args):
     return top1.avg
 
 
-def save_checkpoint(state, is_best, filename='checkpoint.pth.tar'):
+def save_checkpoint(state, is_best, filename='checkpoint-ft.pth.tar'):
     torch.save(state, filename)
     if is_best:
         shutil.copyfile(filename, 'model_best.pth.tar')
@@ -438,8 +437,9 @@ def sanity_check(state_dict, pretrained_weights):
             continue
 
         # name in pretrained model
-        k_pre = 'module.encoder.' + k[len('module.'):] \
-            if k.startswith('module.') else 'module.encoder.' + k
+        #k_pre = 'module.encoder.' + k[len('module.'):] \
+        #    if k.startswith('module.') else 'module.encoder.' + k
+        k_pre = 'encoder.' + k
 
         assert ((state_dict[k].cpu() == state_dict_pre[k_pre]).all()), \
             '{} is changed in linear classifier training.'.format(k)
