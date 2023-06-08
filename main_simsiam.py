@@ -26,6 +26,7 @@ import torch.utils.data.distributed
 import torchvision.transforms as transforms
 import torchvision.datasets as datasets
 import torchvision.models as models
+import torchvision.utils
 
 import simsiam.loader
 import simsiam.builder
@@ -274,22 +275,25 @@ def main_worker(gpu, ngpus_per_node, args):
 
     # custom augmentation meant to simulate the changes applied by image post processing
     augmentation = [
-        transforms.RandomCrop(224,pad_if_needed=True),
-        transforms.RandomHorizontalFlip(),
+        transforms.RandomApply(
+            [transforms.RandomCrop(512,pad_if_needed=True),transforms.Resize(1024)],
+            p=0.5),
+        transforms.RandomApply(
+            [transforms.RandomHorizontalFlip()],
+            p=0.1),
         augmentations.CompressToJPEGWithRandomParams(),
         transforms.ToTensor(),
         normalize
     ]
 
-    total_dataset = trueface_dataset.TruefaceTotal(
-        traindir,
-        augmentations.ApplyDifferentTransforms(
-            transforms.Compose([transforms.ToTensor(),normalize]),
-            transforms.Compose(augmentation)),
-        real_amount=args.real_amount,
-        fake_amount=args.fake_amount)
+    train_dataset = trueface_dataset.PreAndPostDataset(
+        "Telegram",
+        transforms.Compose([transforms.ToTensor(),normalize]),
+        # simsiam.loader.TwoCropsTransform(transforms.Compose(augmentation))
+        real_images_amount=args.real_amount,
+        fake_images_amount=args.fake_amount)
 
-    train_dataset, val_dataset = total_dataset.split_into_train_val(0.2)
+    # train_dataset, val_dataset = total_dataset.split_into_train_val(0.2)
 
     if args.distributed:
         train_sampler = torch.utils.data.distributed.DistributedSampler(train_dataset)
@@ -300,23 +304,23 @@ def main_worker(gpu, ngpus_per_node, args):
         train_dataset, batch_size=args.batch_size, shuffle=(train_sampler is None),
         num_workers=args.workers, pin_memory=False, sampler=train_sampler, drop_last=True)
 
-    val_loader = torch.utils.data.DataLoader(
-        val_dataset,batch_size=4,num_workers=args.workers, pin_memory=False, drop_last=True)
+    # val_loader = torch.utils.data.DataLoader(
+    #    val_dataset,batch_size=4,num_workers=args.workers, pin_memory=False, drop_last=True)
 
     for epoch in range(args.start_epoch, args.epochs):
         if args.distributed:
             train_sampler.set_epoch(epoch)
-        adjust_learning_rate(optimizer, init_lr, epoch, args)
+        # adjust_learning_rate(optimizer, init_lr, epoch, args)
 
         # train for one epoch
         train_wandb_metrics = train(train_loader, model, criterion, optimizer, epoch, args)
 
         # validate the model in the current epoch
-        val_wandb_metrics, metrics_to_accumulate = validate(val_loader,model,criterion,args)
+    #    val_wandb_metrics, metrics_to_accumulate = validate(val_loader,model,criterion,args)
 
         # put both metrics in the same database, as it's much cleaner if we log everything
         # with a single wandb.log() call
-        train_wandb_metrics.update(val_wandb_metrics)
+    #    train_wandb_metrics.update(val_wandb_metrics)
 
         print("Epoch metrics:")
         for key,value in train_wandb_metrics.items():
@@ -332,15 +336,15 @@ def main_worker(gpu, ngpus_per_node, args):
                 'arch': args.arch,
                 'state_dict': model.state_dict(),
                 'optimizer' : optimizer.state_dict(),
-            }, is_best=False, filename='../simsiam-trained-models/checkpoint_{:04d}.pth.tar'.format(epoch))
+            }, is_best=False, filename='../simsiam-trained-models/test/checkpoint_{:04d}.pth.tar'.format(epoch))
 
-        real_table = wandb.Table(data=metrics_to_accumulate["validation/scatter_real"],
-                                    columns=["p1_0","p1_1"])
-        fake_table = wandb.Table(data=metrics_to_accumulate["validation/scatter_fake"],
-                                    columns=["p1_0","p1_1"])
+    #    real_table = wandb.Table(data=metrics_to_accumulate["validation/scatter_real"],
+    #                                columns=["p1_0","p1_1"])
+    #    fake_table = wandb.Table(data=metrics_to_accumulate["validation/scatter_fake"],
+    #                                columns=["p1_0","p1_1"])
         
-        wandb.log({"real_scatter_plot":wandb.plot.scatter(real_table,"p1_0","p1_1",title="Real logits epoch {}".format(epoch))})
-        wandb.log({"fake_scatter_plot":wandb.plot.scatter(fake_table,"p1_0","p1_1",title="Fake logits epoch {}".format(epoch))})
+    #    wandb.log({"real_scatter_plot":wandb.plot.scatter(real_table,"p1_0","p1_1",title="Real logits epoch {}".format(epoch))})
+    #    wandb.log({"fake_scatter_plot":wandb.plot.scatter(fake_table,"p1_0","p1_1",title="Fake logits epoch {}".format#(epoch))})
 
 def train(train_loader, model, criterion, optimizer, epoch, args):
     batch_time = AverageMeter('Time', ':6.3f')
@@ -360,6 +364,8 @@ def train(train_loader, model, criterion, optimizer, epoch, args):
         # measure data loading time
         data_time.update(time.time() - end)
 
+        # print("Batch labels are {}".format(labels.numpy().tolist()))
+
         if args.gpu is not None:
             images[0] = images[0].cuda(args.gpu, non_blocking=True)
             images[1] = images[1].cuda(args.gpu, non_blocking=True)
@@ -370,6 +376,9 @@ def train(train_loader, model, criterion, optimizer, epoch, args):
 
         losses.update(loss.item(), images[0].size(0))
 
+        if i == 10 or i == 5:
+            torchvision.utils.save_image(images[0],"x0_{}_{}.png".format(i,epoch))
+            torchvision.utils.save_image(images[1],"x1_{}_{}.png".format(i,epoch))
         # determine the assigned label from the logits for accuracy
         labels = labels.cuda(args.gpu,non_blocking=True)
         pred_label = torch.argmax(p1,dim=1)
