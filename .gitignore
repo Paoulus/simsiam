@@ -3,3 +3,5 @@ wandb/
 __pycache__
 *.json
 *.log
+*.png
+*.tar
