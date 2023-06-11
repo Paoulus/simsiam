@@ -72,24 +72,17 @@ def main():
 
     # create model
     print("=> creating model '{}'".format(args.arch))
-    model = models.__dict__[args.arch]()
+    model = models.__dict__[args.arch](num_classes=2)
 
     print("=> loading checkpoint '{}'".format(args.finetuned))
     checkpoint = torch.load(args.finetuned, map_location="cpu")
 
     # rename moco pre-trained keys
     state_dict = checkpoint['state_dict']
-    for k in list(state_dict.keys()):
-        # retain only encoder up to before the embedding layer
-        if k.startswith('encoder') and not k.startswith('encoder.fc'):
-            # remove prefix
-            state_dict[k[len("encoder."):]] = state_dict[k]
-        # delete renamed or unused k
-        del state_dict[k]
 
     args.start_epoch = 0
     msg = model.load_state_dict(state_dict, strict=False)
-    assert set(msg.missing_keys) == {"fc.weight", "fc.bias"}
+#    assert set(msg.missing_keys)
 
     normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406],
                                      std=[0.229, 0.224, 0.225]) 
@@ -106,11 +99,15 @@ def main():
     model.eval()
     model.cuda(args.gpu)
 
+    corrects  = 0
     for i, (images, labels) in enumerate(test_loader):
         images = images.cuda(args.gpu)
         labels = labels.cuda(args.gpu)
         output = model(images)
-        pass
+        corrects += torch.sum(torch.eq(output.argmax(1),labels)).item()
+    
+    accuracy = corrects / len(test_dataset)
+    print(accuracy)
 
 if __name__ == '__main__':
     main()

@@ -2,6 +2,8 @@ import random
 import os
 from pathlib import Path
 
+import math
+
 from torchvision import datasets, transforms
 from PIL import Image
 
@@ -213,6 +215,26 @@ class PreAndPostDataset(datasets.DatasetFolder):
             postsoc_sample = self.transform(postsoc_sample)
             
         return (presoc_sample, postsoc_sample), target
+
+    def split_into_train_val(self,val_proportion):
+        val_split_size = int(len(self.samples)*val_proportion)
+        val_dataset = PrePostFromSamples(self.samples[0:val_split_size],self.transform)
+        train_dataset = PrePostFromSamples(self.samples[val_split_size:],self.transform)
+        return train_dataset,val_dataset
+
+class PrePostFromSamples(PreAndPostDataset):
+    def __init__(self,samples_list,transform):
+        self.samples = samples_list
+        self.transform = transform
+
+def get_dataset_size_string(ds_size):
+    ds_size_string = ""
+    if math.log10(ds_size) > 3:
+        ds_size = math.trunc(ds_size / 1000)
+        ds_size_string  = str(ds_size) + "K"
+    else:
+        ds_size_string = str(ds_size)
+    return ds_size_string
 
 """        
 def generateRandomSubsetToFile(dataset_path,size,dest_path):

@@ -28,6 +28,7 @@ import torchvision.datasets as datasets
 import torchvision.models as models
 
 import data_utils.trueface_dataset as trueface_dataset
+import wandb
 
 model_names = sorted(name for name in models.__dict__
     if name.islower() and not name.startswith("__")
@@ -84,6 +85,7 @@ parser.add_argument('--multiprocessing-distributed', action='store_true',
                          'multi node data parallel training')
 parser.add_argument('--real-amount', default=None, type=int)
 parser.add_argument('--fake-amount', default=None, type=int)
+parser.add_argument('--run-suffix', default="", type=str)
 
 # additional configs:
 parser.add_argument('--pretrained', default='', type=str,
@@ -107,6 +109,41 @@ def main():
                       'You may see unexpected behavior when restarting '
                       'from checkpoints.')
 
+    ds_size = args.real_amount + args.fake_amount
+    
+    ds_size_string = trueface_dataset.get_dataset_size_string(ds_size)
+
+    dataset_compact_name = ""
+    if args.data != None:
+        dataset_compact_name = "trueface"
+        dataset_compact_name += "/train" if "Train" in args.data else "/test"
+        dataset_compact_name += "/pre" if "PreSocial" in args.data else "/post"
+
+    run_name = "{} {} batch {} {}"
+    run_suffix = args.run_suffix
+    run_name = run_name.format(dataset_compact_name,ds_size_string, args.batch_size, run_suffix)
+
+
+    wandb_run = wandb.init(
+        # set the wandb project where this run will be logged
+        project="finetuning-simsiam-trueface",
+        
+        name=run_name,
+
+        # track hyperparameters and run metadata
+        config={
+        "learning_rate": args.lr,
+        "architecture": "SimSiam",
+        "optimizer":"SGD",
+        "dataset": dataset_compact_name,
+        "epochs": args.epochs,
+        "batch_size":args.batch_size,
+        "real_samples_amount":args.real_amount,
+        "fake_samples_amount":args.fake_amount,
+        "is distributed":args.multiprocessing_distributed
+        }
+    )
+
     if args.gpu is not None:
         warnings.warn('You have chosen a specific GPU. This will completely '
                       'disable data parallelism.')
@@ -128,6 +165,7 @@ def main():
         # Simply call main_worker function
         main_worker(args.gpu, ngpus_per_node, args)
 
+    wandb.finish()
 
 def main_worker(gpu, ngpus_per_node, args):
     global best_acc1
@@ -154,7 +192,7 @@ def main_worker(gpu, ngpus_per_node, args):
         torch.distributed.barrier()
     # create model
     print("=> creating model '{}'".format(args.arch))
-    model = models.__dict__[args.arch]()
+    model = models.__dict__[args.arch](num_classes=2)
 
     # freeze all layers but the last fc
     for name, param in model.named_parameters():
@@ -266,11 +304,12 @@ def main_worker(gpu, ngpus_per_node, args):
     total_dataset = trueface_dataset.TruefaceTotal(
         args.data,
         transforms.Compose([
-            transforms.RandomResizedCrop(224),
             transforms.RandomHorizontalFlip(),
             transforms.ToTensor(),
             normalize,
-        ]))
+        ]),
+        real_amount=args.real_amount,
+        fake_amount=args.fake_amount)
 
     train_dataset, val_dataset = total_dataset.split_into_train_val(0.2)
 
@@ -285,7 +324,7 @@ def main_worker(gpu, ngpus_per_node, args):
 
     val_loader = torch.utils.data.DataLoader(
         val_dataset,
-        batch_size=256, shuffle=False,
+        batch_size=64, shuffle=True,
         num_workers=args.workers, pin_memory=True)
 
     if args.evaluate:
@@ -298,10 +337,14 @@ def main_worker(gpu, ngpus_per_node, args):
         adjust_learning_rate(optimizer, init_lr, epoch, args)
 
         # train for one epoch
-        train(train_loader, model, criterion, optimizer, epoch, args)
+        train_stats = train(train_loader, model, criterion, optimizer, epoch, args)
 
         # evaluate on validation set
         acc1 = validate(val_loader, model, criterion, args)
+
+        # append stat from validate method. since it's also used to determine the best trained checkpoint, we leave it 
+        # as-is
+        train_stats["validation/top1"] = acc1
 
         # remember best acc@1 and save checkpoint
         is_best = acc1 > best_acc1
@@ -319,16 +362,24 @@ def main_worker(gpu, ngpus_per_node, args):
             if epoch == args.start_epoch:
                 sanity_check(model.state_dict(), args.pretrained)
 
+        wandb.log(train_stats)
+
+    model_artifact = wandb.Artifact('best-model','model',"Checkpoint of the epoch with the best validation accuracy (highest)")
+    model_artifact.add_file("model_best.pth.tar")
+    wandb.log_artifact(model_artifact)
+    latest_checkpoint_artifact = wandb.Artifact('last-checkpoint','model',"Last checkpoint of the finetuning process")
+    latest_checkpoint_artifact.add_file("checkpoint-ft.pth.tar")
+    wandb.log_artifact(latest_checkpoint_artifact)
+
 
 def train(train_loader, model, criterion, optimizer, epoch, args):
     batch_time = AverageMeter('Time', ':6.3f')
     data_time = AverageMeter('Data', ':6.3f')
     losses = AverageMeter('Loss', ':.4e')
     top1 = AverageMeter('Acc@1', ':6.2f')
-    top5 = AverageMeter('Acc@5', ':6.2f')
     progress = ProgressMeter(
         len(train_loader),
-        [batch_time, data_time, losses, top1, top5],
+        [batch_time, data_time, losses, top1],
         prefix="Epoch: [{}]".format(epoch))
 
     """
@@ -354,10 +405,9 @@ def train(train_loader, model, criterion, optimizer, epoch, args):
         loss = criterion(output, target)
 
         # measure accuracy and record loss
-        acc1, acc5 = accuracy(output, target, topk=(1, 5))
+        acc1 = accuracy(output, target)
         losses.update(loss.item(), images.size(0))
-        top1.update(acc1[0], images.size(0))
-        top5.update(acc5[0], images.size(0))
+        top1.update(acc1[0].item(), images.size(0))
 
         # compute gradient and do SGD step
         optimizer.zero_grad()
@@ -370,16 +420,18 @@ def train(train_loader, model, criterion, optimizer, epoch, args):
 
         if i % args.print_freq == 0:
             progress.display(i)
+        
+        return {"train/top1":top1.avg,
+                "train/loss":loss.item()}
 
 
 def validate(val_loader, model, criterion, args):
     batch_time = AverageMeter('Time', ':6.3f')
     losses = AverageMeter('Loss', ':.4e')
     top1 = AverageMeter('Acc@1', ':6.2f')
-    top5 = AverageMeter('Acc@5', ':6.2f')
     progress = ProgressMeter(
         len(val_loader),
-        [batch_time, losses, top1, top5],
+        [batch_time, losses, top1],
         prefix='Test: ')
 
     # switch to evaluate mode
@@ -397,10 +449,9 @@ def validate(val_loader, model, criterion, args):
             loss = criterion(output, target)
 
             # measure accuracy and record loss
-            acc1, acc5 = accuracy(output, target, topk=(1, 5))
+            acc1 = accuracy(output, target)
             losses.update(loss.item(), images.size(0))
-            top1.update(acc1[0], images.size(0))
-            top5.update(acc5[0], images.size(0))
+            top1.update(acc1[0].item(), images.size(0))
 
             # measure elapsed time
             batch_time.update(time.time() - end)
@@ -410,8 +461,8 @@ def validate(val_loader, model, criterion, args):
                 progress.display(i)
 
         # TODO: this should also be done with the ProgressMeter
-        print(' * Acc@1 {top1.avg:.3f} Acc@5 {top5.avg:.3f}'
-              .format(top1=top1, top5=top5))
+        print(' * Acc@1 {top1.avg:.3f}'
+              .format(top1=top1))
 
     return top1.avg
 
