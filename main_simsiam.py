@@ -213,8 +213,8 @@ def main_worker(gpu, ngpus_per_node, args):
         args.dim, args.pred_dim)
 
     # infer learning rate before changing batch size
-    init_lr = args.lr * args.batch_size / 256
-    #init_lr = args.lr       # try with direct control of lr due to small batch size
+    #init_lr = args.lr * args.batch_size / 256
+    init_lr = args.lr       # try with direct control of lr due to small batch size
 
     if args.distributed:
         # Apply SyncBN
@@ -286,12 +286,13 @@ def main_worker(gpu, ngpus_per_node, args):
 
     # custom augmentation meant to simulate the changes applied by image post processing
     augmentation = [
-        transforms.RandomApply(
-            [transforms.RandomCrop(512,pad_if_needed=True),transforms.Resize(1024)],
-            p=0.5),
-        transforms.RandomApply(
-            [transforms.RandomHorizontalFlip()],
-            p=0.1),
+        transforms.RandomResizedCrop(1024, scale=(0.2, 1.)),
+        transforms.RandomApply([
+            transforms.ColorJitter(0.4, 0.4, 0.4, 0.1)  # not strengthened
+        ], p=0.8),
+        transforms.RandomGrayscale(p=0.2),
+        transforms.RandomApply([simsiam.loader.GaussianBlur([.1, 2.])], p=0.5),
+        transforms.RandomHorizontalFlip(),
         augmentations.CompressToJPEGWithRandomParams(),
         transforms.ToTensor(),
         normalize
@@ -307,9 +308,9 @@ def main_worker(gpu, ngpus_per_node, args):
         )
     elif args.data != None:
         total_dataset = trueface_dataset.TruefaceTotal(
-            args.dir, augmentations.ApplyDifferentTransforms(
+            args.data, augmentations.ApplyDifferentTransforms(
                 transforms.Compose([transforms.ToTensor(),normalize]),
-                augmentation
+                transforms.Compose(augmentation)
             ),
             real_amount=args.real_amount,
             fake_amount=args.fake_amount
@@ -405,7 +406,7 @@ def train(train_loader, model, criterion, optimizer, epoch, args):
 
         losses.update(loss.item(), images[0].size(0))
 
-        if i == 10 or i == 5 and epoch == 4:
+        if i == 10:
             torchvision.utils.save_image(images[0],"x0_{}_{}.png".format(i,epoch))
             torchvision.utils.save_image(images[1],"x1_{}_{}.png".format(i,epoch))
         

@@ -227,7 +227,8 @@ def main_worker(gpu, ngpus_per_node, args):
             print("=> no checkpoint found at '{}'".format(args.pretrained))
 
     # infer learning rate before changing batch size
-    init_lr = args.lr * args.batch_size / 256
+    # init_lr = args.lr * args.batch_size / 256
+    init_lr = args.lr
 
     if args.distributed:
         # For multiprocessing distributed, DistributedDataParallel constructor
