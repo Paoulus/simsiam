@@ -213,8 +213,8 @@ def main_worker(gpu, ngpus_per_node, args):
         args.dim, args.pred_dim)
 
     # infer learning rate before changing batch size
-    #init_lr = args.lr * args.batch_size / 256
-    init_lr = args.lr       # try with direct control of lr due to small batch size
+    init_lr = args.lr * args.batch_size / 256
+    #init_lr = args.lr       # try with direct control of lr due to small batch size
 
     if args.distributed:
         # Apply SyncBN
@@ -284,9 +284,14 @@ def main_worker(gpu, ngpus_per_node, args):
     normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406],
                                      std=[0.229, 0.224, 0.225])
 
+    augmentation_convert = [
+        transforms.ToTensor(),
+        normalize
+    ]
+
     # custom augmentation meant to simulate the changes applied by image post processing
-    augmentation = [
-        transforms.RandomResizedCrop(1024, scale=(0.2, 1.)),
+    augmentation_presoc = [
+        augmentations.ResizeAtRandomLocationAndPad(512,1024),
         transforms.RandomApply([
             transforms.ColorJitter(0.4, 0.4, 0.4, 0.1)  # not strengthened
         ], p=0.8),
@@ -302,15 +307,15 @@ def main_worker(gpu, ngpus_per_node, args):
     if args.train_prepost:
         total_dataset = trueface_dataset.PreAndPostDataset(
             "Telegram",
-            transforms.Compose([transforms.ToTensor(),normalize]),
+            transforms.Compose(augmentation_convert),
             real_images_amount=args.real_amount,
             fake_images_amount=args.fake_amount
         )
     elif args.data != None:
         total_dataset = trueface_dataset.TruefaceTotal(
             args.data, augmentations.ApplyDifferentTransforms(
-                transforms.Compose([transforms.ToTensor(),normalize]),
-                transforms.Compose(augmentation)
+                transforms.Compose(augmentation_convert),
+                transforms.Compose(augmentation_presoc)
             ),
             real_amount=args.real_amount,
             fake_amount=args.fake_amount

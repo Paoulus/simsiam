@@ -1,6 +1,9 @@
 from PIL import Image
 import random
 import io
+import math
+
+import torchvision.transforms as transforms
 
 class ApplyDifferentTransforms:
     def __init__(self, convert_transform, augment_transform):
@@ -35,4 +38,19 @@ class CompressToJPEGWithRandomParams:
                        quality=rand_quality,
                        qtables=rand_qtables_preset)
         x = Image.open(compressed_buffer,formats=['JPEG'])
+        return x
+
+class ResizeAtRandomLocationAndPad:
+    def __init__(self,min,max):
+        self.min = min
+        self.max = max
+
+    def __call__(self,x):
+        chosen_size = random.randint(self.min,self.max - 4)
+        x = transforms.RandomCrop(chosen_size)(x)
+        amount_to_pad = (self.max-x.size[0]) / 2
+        pad_one = math.ceil(amount_to_pad)
+        pad_second = math.floor(amount_to_pad)
+        #  left, top, right and bottom borders respectively.
+        x = transforms.Pad((pad_one,pad_one,pad_second,pad_second))(x)
         return x
