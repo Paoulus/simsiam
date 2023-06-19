@@ -94,6 +94,7 @@ parser.add_argument('--real-amount', default=None, type=int)
 parser.add_argument('--fake-amount', default=None, type=int)
 parser.add_argument('--run-suffix', default="", type=str)
 parser.add_argument("--save_dir",default="saved_checkpoints",type=str)
+parser.add_argument("--image-size",default=1024,type=int)
 
 # simsiam specific configs:
 parser.add_argument('--dim', default=2048, type=int,
@@ -102,6 +103,7 @@ parser.add_argument('--pred-dim', default=512, type=int,
                     help='hidden dimension of the predictor (default: 512)')
 parser.add_argument('--fix-pred-lr', action='store_true',
                     help='Fix learning rate for the predictor')
+parser.add_argument("--augmentations", default="pad",choices=["pad","resize","identity"])
 
 def main():
     args = parser.parse_args()
@@ -143,7 +145,7 @@ def main():
     run_suffix = args.run_suffix
     run_name = run_name.format(dataset_compact_name,ds_size_string, args.batch_size, run_suffix)
 
-    wandb_run = wandb.init(
+    wandb.init(
         # set the wandb project where this run will be logged
         project="training-simsiam-trueface",
         
@@ -151,17 +153,20 @@ def main():
 
         # track hyperparameters and run metadata
         config={
-        "learning_rate": args.lr,
         "architecture": "SimSiam",
         "optimizer":"SGD",
         "dataset": dataset_compact_name,
         "epochs": args.epochs,
         "batch_size":args.batch_size,
+        "learning_rate": args.lr,
+        "augmentations":args.augmentations,
         "real_samples_amount":args.real_amount,
         "fake_samples_amount":args.fake_amount,
         "is distributed":args.multiprocessing_distributed
         }
     )
+
+    config = wandb.config
 
     if args.data == None and args.train_prepost == False:
         warnings.warn("No dataset speficied! Pass a path with data=PATH if you want to train on a single \
@@ -179,12 +184,12 @@ def main():
         mp.spawn(main_worker, nprocs=ngpus_per_node, args=(ngpus_per_node, args))
     else:
         # Simply call main_worker function
-        main_worker(args.gpu, ngpus_per_node, args)
+        main_worker(args.gpu, ngpus_per_node, args,config)
     
     wandb.finish()
 
 
-def main_worker(gpu, ngpus_per_node, args):
+def main_worker(gpu, ngpus_per_node, args,config):
     args.gpu = gpu
 
     # suppress printing if not master
@@ -213,8 +218,8 @@ def main_worker(gpu, ngpus_per_node, args):
         args.dim, args.pred_dim)
 
     # infer learning rate before changing batch size
-    init_lr = args.lr * args.batch_size / 256
-    #init_lr = args.lr       # try with direct control of lr due to small batch size
+    init_lr = config["learning_rate"] * config["batch_size"] / 256
+    #init_lr = config["learning_rate"]       # try with direct control of lr due to small batch size
 
     if args.distributed:
         # Apply SyncBN
@@ -228,7 +233,7 @@ def main_worker(gpu, ngpus_per_node, args):
             # When using a single GPU per process and per
             # DistributedDataParallel, we need to divide the batch size
             # ourselves based on the total number of GPUs we have
-            args.batch_size = int(args.batch_size / ngpus_per_node)
+            config["batch_size"] = int(config["batch_size"] / ngpus_per_node)
             args.workers = int((args.workers + ngpus_per_node - 1) / ngpus_per_node)
             model = torch.nn.parallel.DistributedDataParallel(model, device_ids=[args.gpu])
         else:
@@ -285,13 +290,19 @@ def main_worker(gpu, ngpus_per_node, args):
                                      std=[0.229, 0.224, 0.225])
 
     augmentation_convert = [
+        transforms.Resize(args.image_size),
         transforms.ToTensor(),
         normalize
     ]
 
+    augmentation_presoc = []
+    if config["augmentations"] == "pad":
+        augmentation_presoc.append(augmentations.ResizeAtRandomLocationAndPad(256,512))
+    if config["augmentations"] == "resize":
+        augmentation_presoc.append(transforms.RandomResizedCrop(512,(0.02,1.)))
+
     # custom augmentation meant to simulate the changes applied by image post processing
-    augmentation_presoc = [
-        augmentations.ResizeAtRandomLocationAndPad(512,1024),
+    augmentation_presoc.extend([
         transforms.RandomApply([
             transforms.ColorJitter(0.4, 0.4, 0.4, 0.1)  # not strengthened
         ], p=0.8),
@@ -299,9 +310,11 @@ def main_worker(gpu, ngpus_per_node, args):
         transforms.RandomApply([simsiam.loader.GaussianBlur([.1, 2.])], p=0.5),
         transforms.RandomHorizontalFlip(),
         augmentations.CompressToJPEGWithRandomParams(),
+        transforms.Resize(args.image_size),
         transforms.ToTensor(),
         normalize
-    ]
+    ])
+
 
     total_dataset = None
     if args.train_prepost:
@@ -329,16 +342,16 @@ def main_worker(gpu, ngpus_per_node, args):
         train_sampler = None
 
     train_loader = torch.utils.data.DataLoader(
-        train_dataset, batch_size=args.batch_size, shuffle=(train_sampler is None),
+        train_dataset, batch_size=config["batch_size"], shuffle=(train_sampler is None),
         num_workers=args.workers, pin_memory=False, sampler=train_sampler, drop_last=True)
 
     val_loader = torch.utils.data.DataLoader(
         val_dataset,batch_size=4,num_workers=args.workers, pin_memory=False, drop_last=True)
     
-    for epoch in range(args.start_epoch, args.epochs):
+    for epoch in range(args.start_epoch, config["epochs"]):
         if args.distributed:
             train_sampler.set_epoch(epoch)
-        adjust_learning_rate(optimizer, init_lr, epoch, args)
+        adjust_learning_rate(optimizer, init_lr, epoch, args, config)
 
         # train for one epoch
         train_wandb_metrics = train(train_loader, model, criterion, optimizer, epoch, args)
@@ -368,7 +381,7 @@ def main_worker(gpu, ngpus_per_node, args):
                 'optimizer' : optimizer.state_dict(),
             }, is_best=False, filename=checkpoint_path)
 
-            if epoch == (args.epochs - 1):
+            if epoch == (config["epochs"] - 1):
                 last_checkpoint_artifact = wandb.Artifact("last-checkpoint-model","model","Last checkpoint of the unsupervised training")
                 last_checkpoint_artifact.add_file(checkpoint_path)
                 wandb.log_artifact(last_checkpoint_artifact)
@@ -509,9 +522,9 @@ class ProgressMeter(object):
         return '[' + fmt + '/' + fmt.format(num_batches) + ']'
 
 
-def adjust_learning_rate(optimizer, init_lr, epoch, args):
+def adjust_learning_rate(optimizer, init_lr, epoch, args,config):
     """Decay the learning rate based on schedule"""
-    cur_lr = init_lr * 0.5 * (1. + math.cos(math.pi * epoch / args.epochs))
+    cur_lr = init_lr * 0.5 * (1. + math.cos(math.pi * epoch / config["epochs"]))
     for param_group in optimizer.param_groups:
         if 'fix_lr' in param_group and param_group['fix_lr']:
             param_group['lr'] = init_lr
