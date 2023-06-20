@@ -94,7 +94,8 @@ parser.add_argument('--real-amount', default=None, type=int)
 parser.add_argument('--fake-amount', default=None, type=int)
 parser.add_argument('--run-suffix', default="", type=str)
 parser.add_argument("--save_dir",default="saved_checkpoints",type=str)
-parser.add_argument("--image-size",default=1024,type=int)
+parser.add_argument("--image-size",default=None,type=int)
+parser.add_argument("--augmentations", default="pad",choices=["pad","resize","identity"])
 
 # simsiam specific configs:
 parser.add_argument('--dim', default=2048, type=int,
@@ -103,7 +104,7 @@ parser.add_argument('--pred-dim', default=512, type=int,
                     help='hidden dimension of the predictor (default: 512)')
 parser.add_argument('--fix-pred-lr', action='store_true',
                     help='Fix learning rate for the predictor')
-parser.add_argument("--augmentations", default="pad",choices=["pad","resize","identity"])
+
 
 def main():
     args = parser.parse_args()
@@ -290,10 +291,12 @@ def main_worker(gpu, ngpus_per_node, args,config):
                                      std=[0.229, 0.224, 0.225])
 
     augmentation_convert = [
-        transforms.Resize(args.image_size),
         transforms.ToTensor(),
         normalize
     ]
+
+    if args.image_size != None:
+        augmentation_convert.insert(0,transforms.Resize(args.image_size))
 
     augmentation_presoc = []
     if config["augmentations"] == "pad":
@@ -310,10 +313,12 @@ def main_worker(gpu, ngpus_per_node, args,config):
         transforms.RandomApply([simsiam.loader.GaussianBlur([.1, 2.])], p=0.5),
         transforms.RandomHorizontalFlip(),
         augmentations.CompressToJPEGWithRandomParams(),
-        transforms.Resize(args.image_size),
         transforms.ToTensor(),
         normalize
     ])
+
+    if args.image_size != None:
+        augmentation_presoc.insert(6,transforms.Resize(args.image_size))
 
 
     total_dataset = None

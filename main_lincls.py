@@ -86,6 +86,7 @@ parser.add_argument('--multiprocessing-distributed', action='store_true',
 parser.add_argument('--real-amount', default=None, type=int)
 parser.add_argument('--fake-amount', default=None, type=int)
 parser.add_argument('--run-suffix', default="", type=str)
+parser.add_argument("--image-size",default=1024,type=int)
 
 # additional configs:
 parser.add_argument('--pretrained', default='', type=str,
@@ -306,6 +307,7 @@ def main_worker(gpu, ngpus_per_node, args):
         args.data,
         transforms.Compose([
             transforms.RandomHorizontalFlip(),
+            transforms.Resize(args.image_size),
             transforms.ToTensor(),
             normalize,
         ]),
@@ -325,7 +327,7 @@ def main_worker(gpu, ngpus_per_node, args):
 
     val_loader = torch.utils.data.DataLoader(
         val_dataset,
-        batch_size=64, shuffle=True,
+        batch_size=256, shuffle=True,
         num_workers=args.workers, pin_memory=True)
 
     if args.evaluate:

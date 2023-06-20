@@ -67,6 +67,7 @@ def main():
     parser.add_argument('--real-amount', default=None, type=int)
     parser.add_argument('--fake-amount', default=None, type=int)
     parser.add_argument('--run-suffix', default="", type=str)
+    parser.add_argument("--image-size",default=1024,type=int)
 
     args = parser.parse_args()
 
@@ -88,7 +89,7 @@ def main():
                                      std=[0.229, 0.224, 0.225]) 
 
     test_dataset = trueface_dataset.TruefaceTotal(args.data,
-                                                  transforms.Compose([transforms.ToTensor(),normalize]),
+                                                  transforms.Compose([transforms.Resize(args.image_size),transforms.ToTensor(),normalize]),
                                                   real_amount=args.real_amount,
                                                   fake_amount=args.fake_amount)
 

@@ -19,6 +19,7 @@ parser.add_argument('--train_test_split','-tts',action='store_true')
 parser.add_argument('--list_train_set',action='store_true')
 parser.add_argument('--list_pre_and_post_set',action='store_true')
 parser.add_argument("--test_and_val_split",action="store_true")
+parser.add_argument("--silent",action="store_true")
 script_arguments = parser.parse_args()
 
 
@@ -31,8 +32,8 @@ normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406],
 total_dataset = trueface_dataset.TruefaceTotal(input_folder,
                               transforms.Compose([toTensor,normalize]),
                               seed=13776321,
-                              real_amount=2000,
-                              fake_amount=2000)
+                              real_amount=14000,
+                              fake_amount=14000)
 
 print("Total dataset length is: {}".format(len(total_dataset)))
 
@@ -130,8 +131,8 @@ if script_arguments.images:
 if script_arguments.dataloader_samples:
     print("Testing Dataloader creation and iteration over multiple epochs")
     
-    for epoch_n in range(5):
-        print("Epoch {}/5".format(epoch_n))
+    for epoch_n in range(2):
+        print("Epoch {}/2".format(epoch_n))
         batches = len(total_dataloader)
         for i, (images, labels) in enumerate(total_dataloader):
             print("Batch {}/{}".format(i,batches))
@@ -142,11 +143,13 @@ if script_arguments.list_train_set:
 
     train_ds, test_ds = total_dataset.get_train_and_test_splits(5098)
     print("Train set")
-    for path in train_ds.samples:
-        print(path)
+    with open("../listing-train-set.log","w") as train_list:
+        for path in train_ds.samples:
+            print(path,file=train_list)
     print("Test set")
-    for path in test_ds.samples:
-        print(path)
+    with open("../listing-test-set.log","w") as test_list: 
+        for path in test_ds.samples:
+            print(path,file=test_list)
 
     #verify that the two datasets are disjointed
     for path in test_ds.samples:
