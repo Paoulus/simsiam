@@ -100,12 +100,17 @@ def main():
     model.eval()
     model.cuda(args.gpu)
 
-    corrects  = 0
-    for i, (images, labels) in enumerate(test_loader):
-        images = images.cuda(args.gpu)
-        labels = labels.cuda(args.gpu)
-        output = model(images)
-        corrects += torch.sum(torch.eq(output.argmax(1),labels)).item()
+    with open("output-testing.log","w") as output_testing:
+        corrects  = 0
+        for i, (images, labels, path) in enumerate(test_loader):
+            images = images.cuda(args.gpu)
+            labels = labels.cuda(args.gpu)
+            output = model(images)
+            labels_as_list = labels.tolist()
+            for i in range(len(labels_as_list)):
+                pred = output.argmax(1).tolist()
+                print("{}, label {} output {}".format(path[i],labels_as_list[i],pred[i]),file=output_testing)
+            corrects += torch.sum(torch.eq(output.argmax(1),labels)).item()
     
     accuracy = corrects / len(test_dataset)
     print(accuracy)

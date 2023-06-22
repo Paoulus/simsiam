@@ -79,7 +79,7 @@ class TruefaceTotal(datasets.DatasetFolder):
         if self.transform is not None:
             sample = pad_if_facebook(sample)
             sample = self.transform(sample)
-        return sample, target
+        return sample, target, path
 
     def get_train_and_test_splits(self,split_seed):
         total_samples = len(self.samples)

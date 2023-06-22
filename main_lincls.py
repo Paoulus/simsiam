@@ -228,8 +228,8 @@ def main_worker(gpu, ngpus_per_node, args):
             print("=> no checkpoint found at '{}'".format(args.pretrained))
 
     # infer learning rate before changing batch size
-    # init_lr = args.lr * args.batch_size / 256
-    init_lr = args.lr
+    init_lr = args.lr * args.batch_size / 256
+    # init_lr = args.lr
 
     if args.distributed:
         # For multiprocessing distributed, DistributedDataParallel constructor
@@ -327,7 +327,7 @@ def main_worker(gpu, ngpus_per_node, args):
 
     val_loader = torch.utils.data.DataLoader(
         val_dataset,
-        batch_size=256, shuffle=True,
+        batch_size=64, shuffle=True,
         num_workers=args.workers, pin_memory=True)
 
     if args.evaluate:

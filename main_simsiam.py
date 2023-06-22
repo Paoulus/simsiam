@@ -96,6 +96,8 @@ parser.add_argument('--run-suffix', default="", type=str)
 parser.add_argument("--save_dir",default="saved_checkpoints",type=str)
 parser.add_argument("--image-size",default=None,type=int)
 parser.add_argument("--augmentations", default="pad",choices=["pad","resize","identity"])
+parser.add_argument("--crop-min",default=256,type=int)
+parser.add_argument("--crop-max",default=512,type=int)
 
 # simsiam specific configs:
 parser.add_argument('--dim', default=2048, type=int,
@@ -300,7 +302,7 @@ def main_worker(gpu, ngpus_per_node, args,config):
 
     augmentation_presoc = []
     if config["augmentations"] == "pad":
-        augmentation_presoc.append(augmentations.ResizeAtRandomLocationAndPad(256,512))
+        augmentation_presoc.append(augmentations.ResizeAtRandomLocationAndPad(args.crop_min,args.crop_max))
     if config["augmentations"] == "resize":
         augmentation_presoc.append(transforms.RandomResizedCrop(512,(0.02,1.)))
 
@@ -413,7 +415,7 @@ def train(train_loader, model, criterion, optimizer, epoch, args):
 
     end = time.time()
     corrects = 0
-    for i, (images, labels) in enumerate(train_loader):
+    for i, (images, labels,paths) in enumerate(train_loader):
         # measure data loading time
         data_time.update(time.time() - end)
 
@@ -453,7 +455,7 @@ def validate(val_loader,model,criterion,args):
         data_real = []
         data_fake = []
         validation_losses = AverageMeter("Val loss")
-        for i , (images, labels) in enumerate(val_loader):
+        for i , (images, labels, paths) in enumerate(val_loader):
             if args.gpu is not None:
                 images[0] = images[0].cuda(args.gpu, non_blocking=True)
                 images[1] = images[1].cuda(args.gpu, non_blocking=True)
