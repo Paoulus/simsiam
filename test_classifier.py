@@ -7,6 +7,8 @@ import shutil
 import time
 import warnings
 
+from pathlib import Path
+
 import torch
 import torch.nn as nn
 import torch.nn.parallel
@@ -19,6 +21,10 @@ import torch.utils.data.distributed
 import torchvision.transforms as transforms
 import torchvision.datasets as datasets
 import torchvision.models as models
+
+from sklearn.metrics import confusion_matrix
+import pandas as pd
+import numpy as np
 
 import data_utils.trueface_dataset as trueface_dataset
 
@@ -68,6 +74,9 @@ def main():
     parser.add_argument('--fake-amount', default=None, type=int)
     parser.add_argument('--run-suffix', default="", type=str)
     parser.add_argument("--image-size",default=1024,type=int)
+    parser.add_argument("--save-precise-report",action="store_true")
+    parser.add_argument("--report-unprocessed-paths",action="store_true")
+    parser.add_argument("--conf-matrix",action="store_true")
 
     args = parser.parse_args()
 
@@ -100,17 +109,37 @@ def main():
     model.eval()
     model.cuda(args.gpu)
 
+    y_true = torch.empty(0, dtype=torch.int).to(args.gpu)
+    y_pred = torch.empty(0, dtype=torch.int).to(args.gpu)
+
     with open("output-testing.log","w") as output_testing:
         corrects  = 0
         for i, (images, labels, path) in enumerate(test_loader):
             images = images.cuda(args.gpu)
             labels = labels.cuda(args.gpu)
             output = model(images)
+            y_true = torch.cat((y_true,labels))
             labels_as_list = labels.tolist()
-            for i in range(len(labels_as_list)):
-                pred = output.argmax(1).tolist()
-                print("{}, label {} output {}".format(path[i],labels_as_list[i],pred[i]),file=output_testing)
+            if args.save_precise_report:
+                for i in range(len(labels_as_list)):
+                    pred = output.argmax(1).tolist()
+                    processed_path = path[i]
+                    if not args.report_unprocessed_paths:
+                        processed_path = Path(processed_path)
+                        processed_path = "/".join(processed_path.parts[5:])
+                    print("{}, label {} output {}".format(processed_path,labels_as_list[i],pred[i]),file=output_testing)
+            
+            y_pred = torch.cat((y_pred,output.argmax(1)))
             corrects += torch.sum(torch.eq(output.argmax(1),labels)).item()
+        
+        if args.conf_matrix: 
+            cf_matrix = confusion_matrix(y_true.cpu().numpy(), y_pred.cpu().numpy())
+            # do not create dataFrame if there are nan in the cf_matrix
+            if cf_matrix.shape == (2,2):
+                df_cm = pd.DataFrame((cf_matrix.T/np.sum(cf_matrix,axis=1)).T *100, index = [i for i in ['real','fake']],
+                            columns = [i for i in ['real','fake']])
+                print('Confusion_Matrix:\n {}\n'.format(df_cm))
+                print('Confusion_Matrix:\n {}\n'.format(df_cm),file=output_testing)
     
     accuracy = corrects / len(test_dataset)
     print(accuracy)
