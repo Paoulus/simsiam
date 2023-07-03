@@ -305,7 +305,7 @@ def main_worker(gpu, ngpus_per_node, args,config):
         augmentation_presoc.append(augmentations.ResizeAtRandomLocationAndPad(args.crop_min,args.crop_max))
     if config["augmentations"] == "resize":
         augmentation_presoc.append(transforms.RandomResizedCrop(512,(0.02,1.)))
-
+    
     # custom augmentation meant to simulate the changes applied by image post processing
     augmentation_presoc.extend([
         transforms.RandomApply([
@@ -326,7 +326,7 @@ def main_worker(gpu, ngpus_per_node, args,config):
     total_dataset = None
     if args.train_prepost:
         total_dataset = trueface_dataset.PreAndPostDataset(
-            "Telegram",
+            ["Telegram","Facebook","Twitter","Whatsapp"],
             transforms.Compose(augmentation_convert),
             real_images_amount=args.real_amount,
             fake_images_amount=args.fake_amount

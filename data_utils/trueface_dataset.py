@@ -126,7 +126,7 @@ class FolderDataset(TruefaceTotal):
                 self.samples.append(item)
 
 class PreAndPostDataset(datasets.DatasetFolder):
-    def __init__(self, social_string, transform=None,real_images_amount=50,fake_images_amount=50):
+    def __init__(self, socials_to_use, transform=None,real_images_amount=50,fake_images_amount=50):
         self.classes = ["real", "generated"]
         self.samples = []
         self.transform = transform
@@ -140,32 +140,32 @@ class PreAndPostDataset(datasets.DatasetFolder):
 
         rand_generator = random.Random(451)
 
-
-        # walk through the directory tree, and build tuples that are constructed as (pre_soc_path, post_soc_path)
-        for dirpath, dirnames, filenames in os.walk(presocial_base_path, topdown=True):
-            exclude = set(['code', 'tmp', 'dataStyleGAN2','Facebook'])
-            dirnames[:] = [d for d in dirnames if d not in exclude]
-            if 'FFHQ' in dirpath or 'Real' in dirpath or '0_Real' in dirpath:
-                for file in sorted(filenames):
-                        if int(file.removesuffix(".png")) < 13000:
-                            if (file.endswith(".png") or file.endswith(".jpg") or file.endswith(".jpeg")):
+        for social in socials_to_use:
+            # walk through the directory tree, and build tuples that are constructed as (pre_soc_path, post_soc_path)
+            for dirpath, dirnames, filenames in os.walk(presocial_base_path, topdown=True):
+                exclude = set(['code', 'tmp', 'dataStyleGAN2','Facebook'])
+                dirnames[:] = [d for d in dirnames if d not in exclude]
+                if 'FFHQ' in dirpath or 'Real' in dirpath or '0_Real' in dirpath:
+                    for file in sorted(filenames):
+                            if int(file.removesuffix(".png")) < 13000:
+                                if (file.endswith(".png") or file.endswith(".jpg") or file.endswith(".jpeg")):
+                                    complete_path = os.path.join(dirpath, file)
+                                    postsoc_path = self.find_corresponding_postsoc(complete_path,social)
+                                    item = complete_path, postsoc_path , 0
+                                    self.real_images.append(item)
+                                    self.real_images_count += 1
+                elif ((('StyleGAN' in dirpath or 'StyleGAN2' in dirpath or 'StyleGAN1' in dirpath)) or 'Fake' in dirpath or '1_Fake' in dirpath):
+                    files_in_folder = []
+                    for file in sorted(filenames):
+                        if int(file.removesuffix(".png").removeprefix("seed")) < 2250:
+                            if (file.endswith(".png") or file.endswith(".jpg") or file.endswith(".jpeg")) and (self.downsample_fake_samples % 1 == 0):
                                 complete_path = os.path.join(dirpath, file)
-                                postsoc_path = self.find_corresponding_postsoc(complete_path,social_string)
-                                item = complete_path, postsoc_path , 0
-                                self.real_images.append(item)
-                                self.real_images_count += 1
-            elif ((('StyleGAN' in dirpath or 'StyleGAN2' in dirpath)) or 'Fake' in dirpath or '1_Fake' in dirpath):
-                files_in_folder = []
-                for file in sorted(filenames):
-                    if int(file.removesuffix(".png").removeprefix("seed")) < 2250:
-                        if (file.endswith(".png") or file.endswith(".jpg") or file.endswith(".jpeg")) and (self.downsample_fake_samples % 1 == 0):
-                            complete_path = os.path.join(dirpath, file)
-                            postsoc_path = self.find_corresponding_postsoc(complete_path,social_string)
-                            item = complete_path, postsoc_path, 1
-                            files_in_folder.append(item)
-                            self.fake_images_count += 1
-                        self.downsample_fake_samples += 1
-                self.fake_images.extend(files_in_folder)   
+                                postsoc_path = self.find_corresponding_postsoc(complete_path,social)
+                                item = complete_path, postsoc_path, 1
+                                files_in_folder.append(item)
+                                self.fake_images_count += 1
+                            self.downsample_fake_samples += 1
+                    self.fake_images.extend(files_in_folder)   
 
         self.real_images = rand_generator.sample(self.real_images,real_images_amount)
         self.fake_images = rand_generator.sample(self.fake_images,fake_images_amount)
@@ -196,7 +196,10 @@ class PreAndPostDataset(datasets.DatasetFolder):
         postsoc_path =  postsoc_path.replace("Real","0_Real")
         postsoc_path =  postsoc_path.replace("Fake","1_Fake")
         postsoc_path = postsoc_path.replace("seed",zero_fill)
-        postsoc_path =  postsoc_path.replace(".png","_{}.jpeg".format(social_suffix))
+        if social_string.lower() == 'twitter' or social_string.lower() == "facebook":
+            postsoc_path =  postsoc_path.replace(".png","_{}.jpg".format(social_suffix))
+        else:
+            postsoc_path =  postsoc_path.replace(".png","_{}.jpeg".format(social_suffix))
 
         if "Telegram" in postsoc_path or "Facebook" in postsoc_path or "Twitter" in postsoc_path:
             postsoc_path = postsoc_path.replace("StyleGAN1","StyleGAN")

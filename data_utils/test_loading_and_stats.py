@@ -163,10 +163,11 @@ if script_arguments.list_pre_and_post_set:
     # and the second one contains the correspondant post social picture for a given social network
     # max number of fake samples is 1800, due to how the IDs are organized. is this a problem? we have to 
     # validate this a bit better
-    pre_and_post_ds = trueface_dataset.PreAndPostDataset("Telegram",None,1800,1800)
-    pre_and_post_ds = trueface_dataset.PreAndPostDataset("Facebook",None,1800,1800)
-    pre_and_post_ds = trueface_dataset.PreAndPostDataset("Twitter",None,1800,1800)
-    pre_and_post_ds = trueface_dataset.PreAndPostDataset("Whatsapp",None,1800,1800)
+    #pre_and_post_ds = trueface_dataset.PreAndPostDataset(["Telegram"],None,1800,1800)
+    #pre_and_post_ds = trueface_dataset.PreAndPostDataset(["Facebook"],None,1800,1800)
+    #pre_and_post_ds = trueface_dataset.PreAndPostDataset(["Twitter"],None,1800,1800)
+    #pre_and_post_ds = trueface_dataset.PreAndPostDataset(["Whatsapp"],None,1800,1800)
+    pre_and_post_ds = trueface_dataset.PreAndPostDataset(["Whatsapp","Twitter","Facebook","Telegram"],None,7000,7000)
 
     with open("../output-listing-pre-and-post.log","w") as log_file:
         for images, label in pre_and_post_ds:
