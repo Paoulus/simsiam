@@ -3,8 +3,12 @@ from pathlib import Path
 
 import torch
 from torchvision import transforms
+from torchvision import utils
 
-import trueface_dataset
+import data_utils.trueface_dataset as trueface_dataset
+import data_utils.augmentations as augmentations
+import simsiam.loader
+import simsiam.builder
 
 parser = argparse.ArgumentParser(
     description="Script for testing the loading of the data",
@@ -13,13 +17,14 @@ parser.add_argument('--config_path', '-c', type=str, default='config.json')
 parser.add_argument('--device_to_use', '-d', type=str, default='cuda:0',
                     help='device to use for execution (values: cpu, cuda:0)')
 parser.add_argument('--images','-i',action='store_true')
-parser.add_argument('--dataset_samples','-ds',action='store_true')
-parser.add_argument('--dataloader_samples','-dl',action='store_true')
-parser.add_argument('--train_test_split','-tts',action='store_true')
-parser.add_argument('--list_train_set',action='store_true')
-parser.add_argument('--list_pre_and_post_set',action='store_true')
-parser.add_argument("--test_and_val_split",action="store_true")
+parser.add_argument('--dataset-samples','-ds',action='store_true')
+parser.add_argument('--dataloader-samples','-dl',action='store_true')
+parser.add_argument('--train-test-split','-tts',action='store_true')
+parser.add_argument('--list-train-set',action='store_true')
+parser.add_argument('--list-pre-and-post-set',action='store_true')
+parser.add_argument("--test-and-val-split",action="store_true")
 parser.add_argument("--silent",action="store_true")
+parser.add_argument("--get-augmentation-samples",action="store_true")
 script_arguments = parser.parse_args()
 
 
@@ -174,3 +179,52 @@ if script_arguments.list_pre_and_post_set:
             print(images)
             print("Presoc: {}".format(images[0].filename),file=log_file)
             print("Postsoc: {}".format(images[1].filename),file=log_file)
+
+if script_arguments.get_augmentation_samples:
+    print ("Producing some augmentation samples")
+
+    augmentation_presoc = []
+    
+    augmentation_presoc.append(augmentations.ResizeAtRandomLocationAndPad(512,1024))
+    
+    augmentation_convert = [
+        transforms.ToTensor(),
+        normalize
+    ]
+
+    # custom augmentation meant to simulate the changes applied by image post processing
+    augmentation_presoc.extend([
+        transforms.RandomApply([
+            transforms.ColorJitter(0.4, 0.4, 0.4, 0.1)  # not strengthened
+        ], p=0.8),
+        transforms.RandomGrayscale(p=0.2),
+        transforms.RandomApply([simsiam.loader.GaussianBlur([.1, 2.])], p=0.5),
+        transforms.RandomHorizontalFlip(),
+        augmentations.CompressToJPEGWithRandomParams(),
+        transforms.ToTensor(),
+        normalize
+    ])
+
+    
+    augmentation_presoc.insert(6,transforms.Resize(1024))
+    
+    dataset_to_sample = trueface_dataset.TruefaceTotal(
+            input_folder, augmentations.ApplyDifferentTransforms(
+                transforms.Compose(augmentation_convert),
+                transforms.Compose(augmentation_presoc)
+            ),
+            real_amount=500,
+            fake_amount=500
+        )
+
+    dataloader_for_sampling = torch.utils.data.DataLoader(dataset_to_sample,
+                batch_size=32, 
+                shuffle=(total_sampler is None),
+                num_workers=8, 
+                pin_memory=True, 
+                drop_last=True)
+
+    images, labels, paths =  next(iter(dataloader_for_sampling))
+    print(paths[0])
+    utils.save_image(images[0][0],"sample_x0.png")
+    utils.save_image(images[1][0],"sample_x1.png")

@@ -93,7 +93,7 @@ parser.add_argument("--save-checkpoints", action="store_true")
 parser.add_argument('--real-amount', default=None, type=int)
 parser.add_argument('--fake-amount', default=None, type=int)
 parser.add_argument('--run-suffix', default="", type=str)
-parser.add_argument("--save_dir",default="saved_checkpoints",type=str)
+parser.add_argument("--save-dir",default="saved_checkpoints",type=str)
 parser.add_argument("--image-size",default=None,type=int)
 parser.add_argument("--augmentations", default="pad",choices=["pad","resize","identity"])
 parser.add_argument("--crop-min",default=256,type=int)
@@ -431,9 +431,9 @@ def train(train_loader, model, criterion, optimizer, epoch, args):
 
         losses.update(loss.item(), images[0].size(0))
 
-        if i == 10:
-            torchvision.utils.save_image(images[0],"x0_{}_{}.png".format(i,epoch))
-            torchvision.utils.save_image(images[1],"x1_{}_{}.png".format(i,epoch))
+        if i == 1:
+            torchvision.utils.save_image(images[0][0],"x0_{}_{}.png".format(i,epoch))
+            torchvision.utils.save_image(images[1][0],"x1_{}_{}.png".format(i,epoch))
         
         # compute gradient and do SGD step
         optimizer.zero_grad()
