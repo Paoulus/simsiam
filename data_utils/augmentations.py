@@ -12,7 +12,6 @@ class ApplyDifferentTransforms:
 
     def __call__(self, x):
         # return the original as the first element
-        x = x.convert(mode="RGB")
         q = self.t1(x)
         k = self.t2(x)
         return [q, k]

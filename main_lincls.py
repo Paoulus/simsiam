@@ -26,8 +26,6 @@ import torch.utils.data.distributed
 import torchvision.transforms as transforms
 import torchvision.datasets as datasets
 import torchvision.models as models
-from utils import log_model_structure_to_file,log_params_to_file
-from data_utils.mnist_dataset import prepare_mnist_dataset
 
 import data_utils.trueface_dataset as trueface_dataset
 import wandb
@@ -205,12 +203,6 @@ def main_worker(gpu, ngpus_per_node, args):
     model.fc.weight.data.normal_(mean=0.0, std=0.01)
     model.fc.bias.data.zero_()
 
-    with open("finetuning-infos.log","w") as model_infos:
-        print("Params before loading",file=model_infos)
-        log_params_to_file(model,model_infos)
-        print("Model structure before loading",file=model_infos)
-        log_model_structure_to_file(model,model_infos)
-
     # load from pre-trained, before DistributedDataParallel constructor
     if args.pretrained:
         if os.path.isfile(args.pretrained):
@@ -221,9 +213,9 @@ def main_worker(gpu, ngpus_per_node, args):
             state_dict = checkpoint['state_dict']
             for k in list(state_dict.keys()):
                 # retain only encoder up to before the embedding layer
-                if k.startswith('module.encoder') and not k.startswith('module.encoder.fc'):
+                if k.startswith('encoder') and not k.startswith('encoder.fc'):
                     # remove prefix
-                    state_dict[k[len("module.encoder."):]] = state_dict[k]
+                    state_dict[k[len("encoder."):]] = state_dict[k]
                 # delete renamed or unused k
                 del state_dict[k]
 
@@ -305,12 +297,6 @@ def main_worker(gpu, ngpus_per_node, args):
         else:
             print("=> no checkpoint found at '{}'".format(args.resume))
 
-    with open("finetuning-infos.log","a") as model_infos:
-        print("Params after checkpoint loading",file=model_infos)
-        log_params_to_file(model,model_infos)
-        print("Model structure after checkpoint loading",file=model_infos)
-        log_model_structure_to_file(model,model_infos)
-
     cudnn.benchmark = True
 
     # Data loading code
@@ -328,19 +314,7 @@ def main_worker(gpu, ngpus_per_node, args):
         real_amount=args.real_amount,
         fake_amount=args.fake_amount)
 
-    """
-    train_dataset, val_dataset = prepare_mnist_dataset("../datasets/mnist",transforms.Compose([
-            transforms.Lambda(lambda x : x.convert('RGB')),
-            transforms.RandomResizedCrop(24),
-            transforms.RandomHorizontalFlip(),
-            transforms.Resize(args.image_size),
-            transforms.ToTensor(),
-            normalize
-        ]),
-    )
-    """
-
-    train_dataset, val_dataset = total_dataset.split_into_train_val()
+    train_dataset, val_dataset = total_dataset.split_into_train_val(0.2)
 
     if args.distributed:
         train_sampler = torch.utils.data.distributed.DistributedSampler(train_dataset)
@@ -353,7 +327,7 @@ def main_worker(gpu, ngpus_per_node, args):
 
     val_loader = torch.utils.data.DataLoader(
         val_dataset,
-        batch_size=2, shuffle=True,
+        batch_size=64, shuffle=True,
         num_workers=args.workers, pin_memory=True)
 
     if args.evaluate:
@@ -421,10 +395,7 @@ def train(train_loader, model, criterion, optimizer, epoch, args):
     model.eval()
 
     end = time.time()
-    for i, (elements) in enumerate(train_loader):
-        images = elements[0]
-        target = elements[1]
-        
+    for i, (images, target, filename) in enumerate(train_loader):
         # measure data loading time
         data_time.update(time.time() - end)
 
@@ -471,10 +442,7 @@ def validate(val_loader, model, criterion, args):
 
     with torch.no_grad():
         end = time.time()
-        for i, (elements) in enumerate(val_loader):
-            images = elements[0]
-            target = elements[1]
-
+        for i, (images, target, path) in enumerate(val_loader):
             if args.gpu is not None:
                 images = images.cuda(args.gpu, non_blocking=True)
             target = target.cuda(args.gpu, non_blocking=True)
@@ -523,9 +491,9 @@ def sanity_check(state_dict, pretrained_weights):
             continue
 
         # name in pretrained model
-        k_pre = 'module.encoder.' + k[len('module.'):] \
-            if k.startswith('module.') else 'module.encoder.' + k
-        #k_pre = 'encoder.' + k
+        #k_pre = 'module.encoder.' + k[len('module.'):] \
+        #    if k.startswith('module.') else 'module.encoder.' + k
+        k_pre = 'encoder.' + k
 
         assert ((state_dict[k].cpu() == state_dict_pre[k_pre]).all()), \
             '{} is changed in linear classifier training.'.format(k)
