@@ -34,6 +34,8 @@ import simsiam.builder
 
 import data_utils.trueface_dataset as trueface_dataset
 import data_utils.augmentations as augmentations
+from utils import log_params_to_file,log_model_structure_to_file
+from data_utils.mnist_dataset import prepare_mnist_dataset
 
 import wandb
 
@@ -220,6 +222,12 @@ def main_worker(gpu, ngpus_per_node, args,config):
         models.__dict__[args.arch],
         args.dim, args.pred_dim)
 
+    with open("pretraining-infos.log","w") as model_infos:
+        print("Params before pretraining",file=model_infos)
+        log_params_to_file(model,model_infos)
+        print("Model structure before pretraining",file=model_infos)
+        log_model_structure_to_file(model,model_infos)
+
     # infer learning rate before changing batch size
     init_lr = config["learning_rate"] * config["batch_size"] / 256
     #init_lr = config["learning_rate"]       # try with direct control of lr due to small batch size
@@ -301,20 +309,23 @@ def main_worker(gpu, ngpus_per_node, args,config):
         augmentation_convert.insert(0,transforms.Resize(args.image_size))
 
     augmentation_presoc = []
+    """
     if config["augmentations"] == "pad":
         augmentation_presoc.append(augmentations.ResizeAtRandomLocationAndPad(args.crop_min,args.crop_max))
     if config["augmentations"] == "resize":
         augmentation_presoc.append(transforms.RandomResizedCrop(512,(0.02,1.)))
-    
+    """
+
     # custom augmentation meant to simulate the changes applied by image post processing
     augmentation_presoc.extend([
+        transforms.RandomResizedCrop(24, scale=(0.6, 1.)),
         transforms.RandomApply([
             transforms.ColorJitter(0.4, 0.4, 0.4, 0.1)  # not strengthened
         ], p=0.8),
         transforms.RandomGrayscale(p=0.2),
         transforms.RandomApply([simsiam.loader.GaussianBlur([.1, 2.])], p=0.5),
         transforms.RandomHorizontalFlip(),
-        augmentations.CompressToJPEGWithRandomParams(),
+    #    augmentations.CompressToJPEGWithRandomParams(),
         transforms.ToTensor(),
         normalize
     ])
@@ -323,7 +334,8 @@ def main_worker(gpu, ngpus_per_node, args,config):
         augmentation_presoc.insert(6,transforms.Resize(args.image_size))
 
 
-    total_dataset = None
+    """
+    total_dataset =
     if args.train_prepost:
         total_dataset = trueface_dataset.PreAndPostDataset(
             ["Telegram","Facebook","Twitter","Whatsapp"],
@@ -340,8 +352,12 @@ def main_worker(gpu, ngpus_per_node, args,config):
             real_amount=args.real_amount,
             fake_amount=args.fake_amount
         )
-
-    train_dataset, val_dataset = total_dataset.split_into_train_val(0.1)
+    """
+    
+    train_dataset, val_dataset =  prepare_mnist_dataset("../datasets/mnist",augmentations.ApplyDifferentTransforms(
+        transforms.Compose(augmentation_presoc),
+        transforms.Compose(augmentation_presoc)
+    ))
 
     if args.distributed:
         train_sampler = torch.utils.data.distributed.DistributedSampler(train_dataset)
@@ -393,6 +409,12 @@ def main_worker(gpu, ngpus_per_node, args,config):
                 last_checkpoint_artifact.add_file(checkpoint_path)
                 wandb.log_artifact(last_checkpoint_artifact)
 
+    with open("pretraining-infos.log","a") as model_infos:
+        print("Params after pretraining",file=model_infos)
+        log_params_to_file(model,model_infos)
+        print("Model structure after pretraining",file=model_infos)
+        log_model_structure_to_file(model,model_infos)
+
     #    real_table = wandb.Table(data=metrics_to_accumulate["validation/scatter_real"],
     #                                columns=["p1_0","p1_1"])
     #    fake_table = wandb.Table(data=metrics_to_accumulate["validation/scatter_fake"],
@@ -415,25 +437,21 @@ def train(train_loader, model, criterion, optimizer, epoch, args):
 
     end = time.time()
     corrects = 0
-    for i, (images, labels,paths) in enumerate(train_loader):
+    for i, (images) in enumerate(train_loader):
         # measure data loading time
         data_time.update(time.time() - end)
 
         # print("Batch labels are {}".format(labels.numpy().tolist()))
 
         if args.gpu is not None:
-            images[0] = images[0].cuda(args.gpu, non_blocking=True)
-            images[1] = images[1].cuda(args.gpu, non_blocking=True)
+            images[0][0] = images[0][0].cuda(args.gpu, non_blocking=True)
+            images[0][1] = images[0][1].cuda(args.gpu, non_blocking=True)
 
         # compute output and loss
-        p1, p2, z1, z2 = model(x1=images[0], x2=images[1])
+        p1, p2, z1, z2 = model(x1=images[0][0], x2=images[0][1])
         loss = -(criterion(p1, z2).mean() + criterion(p2, z1).mean()) * 0.5
 
-        losses.update(loss.item(), images[0].size(0))
-
-        if i == 1:
-            torchvision.utils.save_image(images[0][0],"x0_{}_{}.png".format(i,epoch))
-            torchvision.utils.save_image(images[1][0],"x1_{}_{}.png".format(i,epoch))
+        losses.update(loss.item(), images[0][0].size(0))
         
         # compute gradient and do SGD step
         optimizer.zero_grad()
@@ -455,16 +473,17 @@ def validate(val_loader,model,criterion,args):
         data_real = []
         data_fake = []
         validation_losses = AverageMeter("Val loss")
-        for i , (images, labels, paths) in enumerate(val_loader):
+        for i , (images) in enumerate(val_loader):
             if args.gpu is not None:
-                images[0] = images[0].cuda(args.gpu, non_blocking=True)
-                images[1] = images[1].cuda(args.gpu, non_blocking=True)
+                images[0][0] = images[0][0].cuda(args.gpu, non_blocking=True)
+                images[0][1] = images[0][1].cuda(args.gpu, non_blocking=True)
             
             # compute output and loss
-            p1, p2, z1, z2 = model(x1=images[0], x2=images[1])
+            p1, p2, z1, z2 = model(x1=images[0][0], x2=images[0][1])
             loss = -(criterion(p1, z2).mean() + criterion(p2, z1).mean()) * 0.5
-            validation_losses.update(loss.item(),images[0].size(0))
+            validation_losses.update(loss.item(),images[0][0].size(0))
 
+            """
             # determine the assigned label from the logits for accuracy
             labels = labels.cuda(args.gpu,non_blocking=True)
             pred_label = torch.argmax(p1,dim=1)
@@ -476,7 +495,8 @@ def validate(val_loader,model,criterion,args):
                     data_fake.append(pred_as_list)
                 else:
                     data_real.append(pred_as_list)
-
+            
+            """
         metrics = {"validation/mean_loss":validation_losses.avg}
         entire_epoch_metrics = {
                 "validation/scatter_real":data_real,

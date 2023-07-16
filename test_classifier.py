@@ -6,6 +6,7 @@ import random
 import shutil
 import time
 import warnings
+import wandb
 
 from pathlib import Path
 
@@ -27,6 +28,46 @@ import pandas as pd
 import numpy as np
 
 import data_utils.trueface_dataset as trueface_dataset
+from data_utils.mnist_dataset import prepare_mnist_dataset
+
+def compute_accuracy(output, target, topk=(1,)):
+    """Computes the accuracy over the k top predictions for the specified values of k"""
+    with torch.no_grad():
+        maxk = max(topk)
+        batch_size = target.size(0)
+
+        _, pred = output.topk(maxk, 1, True, True)
+        pred = pred.t()
+        correct = pred.eq(target.view(1, -1).expand_as(pred))
+
+        res = []
+        for k in topk:
+            correct_k = correct[:k].reshape(-1).float().sum(0, keepdim=True)
+            res.append(correct_k.mul_(100.0 / batch_size))
+        return res
+
+class AverageMeter(object):
+    """Computes and stores the average and current value"""
+    def __init__(self, name, fmt=':f'):
+        self.name = name
+        self.fmt = fmt
+        self.reset()
+
+    def reset(self):
+        self.val = 0
+        self.avg = 0
+        self.sum = 0
+        self.count = 0
+
+    def update(self, val, n=1):
+        self.val = val
+        self.sum += val * n
+        self.count += n
+        self.avg = self.sum / self.count
+
+    def __str__(self):
+        fmtstr = '{name} {val' + self.fmt + '} ({avg' + self.fmt + '})'
+        return fmtstr.format(**self.__dict__)
 
 def main():
     parser = argparse.ArgumentParser(description='Testing')
@@ -80,9 +121,30 @@ def main():
 
     args = parser.parse_args()
 
+    run_name = "testing {} {}"
+    run_suffix = args.run_suffix
+    run_name = run_name.format(args.batch_size, run_suffix)
+
+    wandb.init(project="testing simsiam",
+        name=run_name,
+
+        # track hyperparameters and run metadata
+            config={
+            "learning_rate": args.lr,
+            "architecture": "SimSiam",
+            "optimizer":"SGD",
+            "dataset": "MNIST",
+            "epochs": args.epochs,
+            "batch_size":args.batch_size,
+            "real_samples_amount":args.real_amount,
+            "fake_samples_amount":args.fake_amount,
+            "finetuned model":args.finetuned
+            }
+        )
+
     # create model
     print("=> creating model '{}'".format(args.arch))
-    model = models.__dict__[args.arch](num_classes=2)
+    model = models.__dict__[args.arch](num_classes=10)
 
     print("=> loading checkpoint '{}'".format(args.finetuned))
     checkpoint = torch.load(args.finetuned, map_location="cpu")
@@ -97,10 +159,11 @@ def main():
     normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406],
                                      std=[0.229, 0.224, 0.225]) 
 
-    test_dataset = trueface_dataset.TruefaceTotal(args.data,
-                                                  transforms.Compose([transforms.Resize(args.image_size),transforms.ToTensor(),normalize]),
-                                                  real_amount=args.real_amount,
-                                                  fake_amount=args.fake_amount)
+    test_dataset,_ = prepare_mnist_dataset("../datasets/mnist",
+                                                  transforms.Compose([
+                                                    transforms.Lambda(lambda x : x.convert('RGB')),
+                                                    transforms.ToTensor(),
+                                                    normalize]),test=True)
 
     test_loader = torch.utils.data.DataLoader(
         test_dataset, batch_size=args.batch_size, shuffle=None,
@@ -112,9 +175,13 @@ def main():
     y_true = torch.empty(0, dtype=torch.int).to(args.gpu)
     y_pred = torch.empty(0, dtype=torch.int).to(args.gpu)
 
+    acc2_average = AverageMeter("Acc5",":6.2f")
     with open("output-testing.log","w") as output_testing:
         corrects  = 0
-        for i, (images, labels, path) in enumerate(test_loader):
+        for i, (elements) in enumerate(test_loader):
+            images = elements[0]
+            labels = elements[1]
+
             images = images.cuda(args.gpu)
             labels = labels.cuda(args.gpu)
             output = model(images)
@@ -123,14 +190,17 @@ def main():
             if args.save_precise_report:
                 for i in range(len(labels_as_list)):
                     pred = output.argmax(1).tolist()
+                    """
                     processed_path = path[i]
                     if not args.report_unprocessed_paths:
                         processed_path = Path(processed_path)
                         processed_path = "/".join(processed_path.parts[5:])
                     print("{}, label {} output {}".format(processed_path,labels_as_list[i],pred[i]),file=output_testing)
-            
+                    """
             y_pred = torch.cat((y_pred,output.argmax(1)))
             corrects += torch.sum(torch.eq(output.argmax(1),labels)).item()
+            acc1, acc2 = compute_accuracy(output,labels, (1,2))
+            acc2_average.update(acc2[0],images.size(0))
         
         if args.conf_matrix: 
             cf_matrix = confusion_matrix(y_true.cpu().numpy(), y_pred.cpu().numpy())
@@ -143,6 +213,16 @@ def main():
     
     accuracy = corrects / len(test_dataset)
     print(accuracy)
+    print(acc2_average.avg)
+
+    test_stats = {
+        "acc1":accuracy,
+        "acc2":acc2_average.avg.item()
+    }
+
+    wandb.log(test_stats)
+
+    wandb.finish()
 
 if __name__ == '__main__':
     main()
