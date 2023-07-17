@@ -195,7 +195,7 @@ def main_worker(gpu, ngpus_per_node, args):
         torch.distributed.barrier()
     # create model
     print("=> creating model '{}'".format(args.arch))
-    model = models.__dict__[args.arch](num_classes=2)
+    model = models.__dict__[args.arch](num_classes=10)
 
     # freeze all layers but the last fc
     for name, param in model.named_parameters():
@@ -317,6 +317,7 @@ def main_worker(gpu, ngpus_per_node, args):
     normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406],
                                      std=[0.229, 0.224, 0.225])
 
+    """
     total_dataset = trueface_dataset.TruefaceTotal(
         args.data,
         transforms.Compose([
@@ -327,20 +328,17 @@ def main_worker(gpu, ngpus_per_node, args):
         ]),
         real_amount=args.real_amount,
         fake_amount=args.fake_amount)
-
     """
+    
     train_dataset, val_dataset = prepare_mnist_dataset("../datasets/mnist",transforms.Compose([
             transforms.Lambda(lambda x : x.convert('RGB')),
-            transforms.RandomResizedCrop(24),
-            transforms.RandomHorizontalFlip(),
-            transforms.Resize(args.image_size),
             transforms.ToTensor(),
             normalize
         ]),
     )
-    """
+    
 
-    train_dataset, val_dataset = total_dataset.split_into_train_val()
+    # train_dataset, val_dataset = total_dataset.split_into_train_val()
 
     if args.distributed:
         train_sampler = torch.utils.data.distributed.DistributedSampler(train_dataset)
