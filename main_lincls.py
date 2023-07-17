@@ -28,6 +28,7 @@ import torchvision.datasets as datasets
 import torchvision.models as models
 
 import data_utils.trueface_dataset as trueface_dataset
+from data_utils.utils import AverageMeter, ProgressMeter
 import wandb
 
 model_names = sorted(name for name in models.__dict__
@@ -114,16 +115,13 @@ def main():
     
     ds_size_string = trueface_dataset.get_dataset_size_string(ds_size)
 
-    dataset_compact_name = ""
-    if args.data != None:
-        dataset_compact_name = "trueface"
-        dataset_compact_name += "/train" if "Train" in args.data else "/test"
-        dataset_compact_name += "/pre" if "PreSocial" in args.data else "/post"
-
-    run_name = "{} {} batch {} {}"
-    run_suffix = args.run_suffix
-    run_name = run_name.format(dataset_compact_name,ds_size_string, args.batch_size, run_suffix)
-
+    dataset_compact_name = trueface_dataset.get_compact_name(args.data)
+    
+    run_name = trueface_dataset.get_run_name(dataset_compact_name,
+                                             ds_size_string,
+                                             args.batch_size,
+                                             args.run_suffix,
+                                             args.lr)
 
     wandb_run = wandb.init(
         # set the wandb project where this run will be logged
@@ -499,48 +497,6 @@ def sanity_check(state_dict, pretrained_weights):
             '{} is changed in linear classifier training.'.format(k)
 
     print("=> sanity check passed.")
-
-
-class AverageMeter(object):
-    """Computes and stores the average and current value"""
-    def __init__(self, name, fmt=':f'):
-        self.name = name
-        self.fmt = fmt
-        self.reset()
-
-    def reset(self):
-        self.val = 0
-        self.avg = 0
-        self.sum = 0
-        self.count = 0
-
-    def update(self, val, n=1):
-        self.val = val
-        self.sum += val * n
-        self.count += n
-        self.avg = self.sum / self.count
-
-    def __str__(self):
-        fmtstr = '{name} {val' + self.fmt + '} ({avg' + self.fmt + '})'
-        return fmtstr.format(**self.__dict__)
-
-
-class ProgressMeter(object):
-    def __init__(self, num_batches, meters, prefix=""):
-        self.batch_fmtstr = self._get_batch_fmtstr(num_batches)
-        self.meters = meters
-        self.prefix = prefix
-
-    def display(self, batch):
-        entries = [self.prefix + self.batch_fmtstr.format(batch)]
-        entries += [str(meter) for meter in self.meters]
-        print('\t'.join(entries))
-
-    def _get_batch_fmtstr(self, num_batches):
-        num_digits = len(str(num_batches // 1))
-        fmt = '{:' + str(num_digits) + 'd}'
-        return '[' + fmt + '/' + fmt.format(num_batches) + ']'
-
 
 def adjust_learning_rate(optimizer, init_lr, epoch, args):
     """Decay the learning rate based on schedule"""

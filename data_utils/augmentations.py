@@ -16,6 +16,9 @@ class ApplyDifferentTransforms:
         k = self.t2(x)
         return [q, k]
 
+    def __str__(self):
+        return "ApplyDifferentTransforms({},{})".format(self.t1,self.t2)
+
 class CompressToJPEG:
     def __init__(self):
         pass
@@ -25,6 +28,9 @@ class CompressToJPEG:
         x.save(compressed_buffer,format='JPEG')
         x = Image.open(compressed_buffer,formats=['JPEG'])
         return x
+    
+    def __str__(self):
+        return "CompressToJPEG()"
     
 class CompressToJPEGWithRandomParams:
     def __init__(self):
@@ -40,6 +46,9 @@ class CompressToJPEGWithRandomParams:
         x = Image.open(compressed_buffer,formats=['JPEG'])
         return x
 
+    def __str__(self):
+        return "CompressToJPEGWithRandomParams()"
+
 class ResizeAtRandomLocationAndPad:
     def __init__(self,min,max):
         self.min = min
@@ -54,3 +63,8 @@ class ResizeAtRandomLocationAndPad:
         #  left, top, right and bottom borders respectively.
         x = transforms.Pad((pad_one,pad_one,pad_second,pad_second))(x)
         return x
+
+    def __str__(self):
+        return "ResizeAtRandomLocationAndPad(min={},max={})".format(self.min,self.max)
+
+    

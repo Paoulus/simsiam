@@ -239,6 +239,17 @@ def get_dataset_size_string(ds_size):
         ds_size_string = str(ds_size)
     return ds_size_string
 
+def get_compact_name(data_string):
+    dataset_compact_name = "trueface"
+    dataset_compact_name += "/train" if "Train" in data_string else "/test"
+    dataset_compact_name += "/presoc" if "PreSocial" in data_string else "/postsoc"
+    return dataset_compact_name
+
+def get_run_name(db_compact_name,size_string,batch_size,run_suffix,lr):
+    run_name = "{} {} batch-size {} lr {} {}"
+    run_name = run_name.format(db_compact_name,size_string,batch_size,lr,run_suffix)
+    return run_name
+
 """        
 def generateRandomSubsetToFile(dataset_path,size,dest_path):
     total_database = TuningDatabase(dataset_path)
