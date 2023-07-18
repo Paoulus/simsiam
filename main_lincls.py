@@ -29,6 +29,7 @@ import torchvision.models as models
 
 import data_utils.trueface_dataset as trueface_dataset
 from data_utils.utils import AverageMeter, ProgressMeter
+from data_utils.prepared_datasets import prepare_coco_detection, prepare_voc_detection
 import wandb
 
 model_names = sorted(name for name in models.__dict__
@@ -211,9 +212,9 @@ def main_worker(gpu, ngpus_per_node, args):
             state_dict = checkpoint['state_dict']
             for k in list(state_dict.keys()):
                 # retain only encoder up to before the embedding layer
-                if k.startswith('encoder') and not k.startswith('encoder.fc'):
+                if k.startswith('module.encoder') and not k.startswith('module.encoder.fc'):
                     # remove prefix
-                    state_dict[k[len("encoder."):]] = state_dict[k]
+                    state_dict[k[len("module.encoder."):]] = state_dict[k]
                 # delete renamed or unused k
                 del state_dict[k]
 
@@ -312,7 +313,7 @@ def main_worker(gpu, ngpus_per_node, args):
         real_amount=args.real_amount,
         fake_amount=args.fake_amount)
 
-    train_dataset, val_dataset = total_dataset.split_into_train_val(0.2)
+    train_dataset , val_dataset = total_dataset.split_into_train_val()
 
     if args.distributed:
         train_sampler = torch.utils.data.distributed.DistributedSampler(train_dataset)
