@@ -35,6 +35,9 @@ import simsiam.builder
 import data_utils.trueface_dataset as trueface_dataset
 from data_utils.utils import AverageMeter, ProgressMeter
 import data_utils.augmentations as augmentations
+from sklearn.decomposition import PCA
+import numpy as np
+import matplotlib.pyplot as plot
 
 import wandb
 
@@ -187,6 +190,15 @@ def main():
     
     wandb.finish()
 
+def convert_and_plot(data,filename,marker):
+    # adapt data for visualization on scatter plot
+    x = []
+    y = []
+    for el in data:
+        x.append(el[0])
+        y.append(el[1])
+    plot.scatter(x,y,marker=marker)
+    plot.savefig(filename)
 
 def main_worker(gpu, ngpus_per_node, args,config):
     args.gpu = gpu
@@ -356,6 +368,8 @@ def main_worker(gpu, ngpus_per_node, args,config):
     val_loader = torch.utils.data.DataLoader(
         val_dataset,batch_size=4,num_workers=args.workers, pin_memory=False, drop_last=True)
     
+    pca_real_epoch = []
+    pca_fake_epoch = []
     for epoch in range(args.start_epoch, config["epochs"]):
         if args.distributed:
             train_sampler.set_epoch(epoch)
@@ -365,8 +379,10 @@ def main_worker(gpu, ngpus_per_node, args,config):
         train_wandb_metrics = train(train_loader, model, criterion, optimizer, epoch, args)
 
         # measure unsup loss on validation set
-        val_wandb_metrics, metrics_to_accumulate = validate(val_loader,model,criterion,args)
+        val_wandb_metrics, true_fv_transformed, fake_fv_transformed = validate(val_loader,model,criterion,args)
 
+        pca_real_epoch.append(true_fv_transformed)
+        pca_fake_epoch.append(fake_fv_transformed)
         # put both metrics in the same database, as it's much cleaner if we log everything
         # with a single wandb.log() call
         train_wandb_metrics.update(val_wandb_metrics)
@@ -393,14 +409,11 @@ def main_worker(gpu, ngpus_per_node, args,config):
                 last_checkpoint_artifact = wandb.Artifact("last-checkpoint-model","model","Last checkpoint of the unsupervised training")
                 last_checkpoint_artifact.add_file(checkpoint_path)
                 wandb.log_artifact(last_checkpoint_artifact)
+    # scatter plot of last transformed feature vectors
+    convert_and_plot(pca_real_epoch[-1],"real_fake_scatter.png",'o')
+    convert_and_plot(pca_fake_epoch[-1],"real_fake_scatter.png",'x')
 
-    #    real_table = wandb.Table(data=metrics_to_accumulate["validation/scatter_real"],
-    #                                columns=["p1_0","p1_1"])
-    #    fake_table = wandb.Table(data=metrics_to_accumulate["validation/scatter_fake"],
-    #                                columns=["p1_0","p1_1"])
-        
-    #    wandb.log({"real_scatter_plot":wandb.plot.scatter(real_table,"p1_0","p1_1",title="Real logits epoch {}".format(epoch))})
-    #    wandb.log({"fake_scatter_plot":wandb.plot.scatter(fake_table,"p1_0","p1_1",title="Fake logits epoch {}".format#(epoch))})
+
 
 def train(train_loader, model, criterion, optimizer, epoch, args):
     batch_time = AverageMeter('Time', ':6.3f')
@@ -451,8 +464,11 @@ def train(train_loader, model, criterion, optimizer, epoch, args):
 
 def validate(val_loader,model,criterion,args):
     model.eval()
+    pca_true = PCA(n_components=2)
+    pca_fake = PCA(n_components=2)
+    feature_vectors_true = torch.empty(0).cuda(args.gpu,non_blocking=True)
+    feature_vectors_fake = torch.empty(0).cuda(args.gpu,non_blocking=True)
     with torch.no_grad():
-        corrects = 0
         data_real = []
         data_fake = []
         validation_losses = AverageMeter("Val loss")
@@ -466,23 +482,25 @@ def validate(val_loader,model,criterion,args):
             loss = -(criterion(p1, z2).mean() + criterion(p2, z1).mean()) * 0.5
             validation_losses.update(loss.item(),images[0].size(0))
 
-            # determine the assigned label from the logits for accuracy
             labels = labels.cuda(args.gpu,non_blocking=True)
-            pred_label = torch.argmax(p1,dim=1)
-            corrects += torch.sum(torch.eq(labels,pred_label)).item()
 
-            for pred_index, pred in enumerate(p1):
-                pred_as_list = pred.cpu().numpy().tolist()
-                if labels[pred_index] == 0:
-                    data_fake.append(pred_as_list)
+            for index, el in enumerate(p1):
+                if labels[index].item() == 0:
+                    feature_vectors_true = torch.cat((feature_vectors_true,el),dim=0)
                 else:
-                    data_real.append(pred_as_list)
+                    feature_vectors_fake = torch.cat((feature_vectors_fake,el),dim=0)
+
+        pca_true_reshaped = np.reshape(feature_vectors_true.tolist(),(-1,2048))
+        pca_fake_reshaped = np.reshape(feature_vectors_fake.tolist(),(-1,2048))
+
+        pca_true.fit(pca_true_reshaped)
+        pca_fake.fit(pca_fake_reshaped)
+
+        pca_true_transformed = pca_true.transform(pca_true_reshaped)
+        pca_fake_transformed = pca_fake.transform(pca_fake_reshaped)
 
         metrics = {"validation/mean_loss":validation_losses.avg}
-        entire_epoch_metrics = {
-                "validation/scatter_real":data_real,
-                "validation/scatter_fake":data_fake}
-        return metrics , entire_epoch_metrics
+        return metrics , pca_true_transformed, pca_fake_transformed
 
 def save_checkpoint(state, is_best, filename='checkpoint.pth.tar'):
     torch.save(state, filename)
