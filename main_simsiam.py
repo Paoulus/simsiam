@@ -190,15 +190,14 @@ def main():
     
     wandb.finish()
 
-def convert_and_plot(data,filename,marker):
+def convert_and_plot(data,marker,axis,label):
     # adapt data for visualization on scatter plot
     x = []
     y = []
     for el in data:
         x.append(el[0])
         y.append(el[1])
-    plot.scatter(x,y,marker=marker)
-    plot.savefig(filename)
+    axis.scatter(x,y,marker=marker,label=label)
 
 def main_worker(gpu, ngpus_per_node, args,config):
     args.gpu = gpu
@@ -368,8 +367,6 @@ def main_worker(gpu, ngpus_per_node, args,config):
     val_loader = torch.utils.data.DataLoader(
         val_dataset,batch_size=4,num_workers=args.workers, pin_memory=False, drop_last=True)
     
-    pca_real_epoch = []
-    pca_fake_epoch = []
     for epoch in range(args.start_epoch, config["epochs"]):
         if args.distributed:
             train_sampler.set_epoch(epoch)
@@ -381,8 +378,6 @@ def main_worker(gpu, ngpus_per_node, args,config):
         # measure unsup loss on validation set
         val_wandb_metrics, true_fv_transformed, fake_fv_transformed = validate(val_loader,model,criterion,args)
 
-        pca_real_epoch.append(true_fv_transformed)
-        pca_fake_epoch.append(fake_fv_transformed)
         # put both metrics in the same database, as it's much cleaner if we log everything
         # with a single wandb.log() call
         train_wandb_metrics.update(val_wandb_metrics)
@@ -391,6 +386,16 @@ def main_worker(gpu, ngpus_per_node, args,config):
         for key,value in train_wandb_metrics.items():
             print("{} : {}".format(key,value))
         print("-"*10)
+
+        # scatter plot of validation transformed feature vectors
+        fig, ax = plot.subplots()
+        convert_and_plot(true_fv_transformed,'o',ax,"real")
+        convert_and_plot(fake_fv_transformed,'x',ax,"fake")
+        fig.suptitle("Feature fectors after PCA reduction")
+        fig.legend()
+        fig.savefig("real_fake_scatter.png")
+
+        train_wandb_metrics.update({"validation/scatter_plot":wandb.Image(fig)})
 
         wandb.log(train_wandb_metrics)
 
@@ -409,9 +414,6 @@ def main_worker(gpu, ngpus_per_node, args,config):
                 last_checkpoint_artifact = wandb.Artifact("last-checkpoint-model","model","Last checkpoint of the unsupervised training")
                 last_checkpoint_artifact.add_file(checkpoint_path)
                 wandb.log_artifact(last_checkpoint_artifact)
-    # scatter plot of last transformed feature vectors
-    convert_and_plot(pca_real_epoch[-1],"real_fake_scatter.png",'o')
-    convert_and_plot(pca_fake_epoch[-1],"real_fake_scatter.png",'x')
 
 
 

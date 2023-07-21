@@ -171,6 +171,7 @@ class PreAndPostDataset(datasets.DatasetFolder):
         self.fake_images = rand_generator.sample(self.fake_images,fake_images_amount)
 
         self.samples = self.real_images + self.fake_images
+        self.samples = rand_generator.sample(self.samples,len(self.samples))
     
     def __len__(self):
         return len(self.samples)
@@ -211,13 +212,14 @@ class PreAndPostDataset(datasets.DatasetFolder):
         presoc_path,postsoc_path, target = self.samples[index]
         presoc_sample = Image.open(presoc_path)
         postsoc_sample = Image.open(postsoc_path)
+        path = "{}->{}".format(presoc_path, postsoc_path)
         if self.transform is not None:
             presoc_sample = pad_if_facebook(presoc_sample)
             postsoc_sample = pad_if_facebook(postsoc_sample)
             presoc_sample = self.transform(presoc_sample)
             postsoc_sample = self.transform(postsoc_sample)
             
-        return (presoc_sample, postsoc_sample), target
+        return (presoc_sample, postsoc_sample), target, path
 
     def split_into_train_val(self,val_proportion):
         val_split_size = int(len(self.samples)*val_proportion)
