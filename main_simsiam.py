@@ -376,7 +376,7 @@ def main_worker(gpu, ngpus_per_node, args,config):
         train_wandb_metrics = train(train_loader, model, criterion, optimizer, epoch, args)
 
         # measure unsup loss on validation set
-        val_wandb_metrics, true_fv_transformed, fake_fv_transformed = validate(val_loader,model,criterion,args)
+        val_wandb_metrics, true_fv, fake_fv = validate(val_loader,model,criterion,args)
 
         # put both metrics in the same database, as it's much cleaner if we log everything
         # with a single wandb.log() call
@@ -389,6 +389,8 @@ def main_worker(gpu, ngpus_per_node, args,config):
 
         # scatter plot of validation transformed feature vectors
         fig, ax = plot.subplots()
+        true_fv_transformed = pca_transform(true_fv,2)
+        fake_fv_transformed = pca_transform(fake_fv,2)
         convert_and_plot(true_fv_transformed,'o',ax,"real")
         convert_and_plot(fake_fv_transformed,'x',ax,"fake")
         fig.suptitle("Feature fectors after PCA reduction")
@@ -464,10 +466,15 @@ def train(train_loader, model, criterion, optimizer, epoch, args):
 
     return {"train/mean_loss":losses.avg,}
 
+def pca_transform(data,desired_components):
+    pca = PCA(n_components=desired_components)
+    pca.fit(data)
+
+    result = pca.transform(data)
+    return result
+
 def validate(val_loader,model,criterion,args):
     model.eval()
-    pca_true = PCA(n_components=2)
-    pca_fake = PCA(n_components=2)
     feature_vectors_true = torch.empty(0).cuda(args.gpu,non_blocking=True)
     feature_vectors_fake = torch.empty(0).cuda(args.gpu,non_blocking=True)
     with torch.no_grad():
@@ -495,14 +502,8 @@ def validate(val_loader,model,criterion,args):
         pca_true_reshaped = np.reshape(feature_vectors_true.tolist(),(-1,2048))
         pca_fake_reshaped = np.reshape(feature_vectors_fake.tolist(),(-1,2048))
 
-        pca_true.fit(pca_true_reshaped)
-        pca_fake.fit(pca_fake_reshaped)
-
-        pca_true_transformed = pca_true.transform(pca_true_reshaped)
-        pca_fake_transformed = pca_fake.transform(pca_fake_reshaped)
-
         metrics = {"validation/mean_loss":validation_losses.avg}
-        return metrics , pca_true_transformed, pca_fake_transformed
+        return metrics , pca_true_reshaped, pca_fake_reshaped
 
 def save_checkpoint(state, is_best, filename='checkpoint.pth.tar'):
     torch.save(state, filename)
