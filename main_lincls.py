@@ -89,6 +89,7 @@ parser.add_argument('--real-amount', default=None, type=int)
 parser.add_argument('--fake-amount', default=None, type=int)
 parser.add_argument('--run-suffix', default="", type=str)
 parser.add_argument("--image-size",default=1024,type=int)
+parser.add_argument("--checkpoint-name",default="checkpoint-ft.pth.tar",type=str)
 
 # additional configs:
 parser.add_argument('--pretrained', default='', type=str,
@@ -360,17 +361,18 @@ def main_worker(gpu, ngpus_per_node, args):
                 'state_dict': model.state_dict(),
                 'best_acc1': best_acc1,
                 'optimizer' : optimizer.state_dict(),
-            }, is_best)
+            }, is_best,filename=args.checkpoint_name)
             if epoch == args.start_epoch:
                 sanity_check(model.state_dict(), args.pretrained)
 
         wandb.log(train_stats)
 
     model_artifact = wandb.Artifact('best-model','model',"Checkpoint of the epoch with the best validation accuracy (highest)")
-    model_artifact.add_file("model_best.pth.tar")
+    best_filename = args.checkpoint_name.replace('.','-best.',1)
+    model_artifact.add_file(best_filename)
     wandb.log_artifact(model_artifact)
     latest_checkpoint_artifact = wandb.Artifact('last-checkpoint','model',"Last checkpoint of the finetuning process")
-    latest_checkpoint_artifact.add_file("checkpoint-ft.pth.tar")
+    latest_checkpoint_artifact.add_file(args.checkpoint_name)
     wandb.log_artifact(latest_checkpoint_artifact)
 
 
@@ -423,8 +425,8 @@ def train(train_loader, model, criterion, optimizer, epoch, args):
         if i % args.print_freq == 0:
             progress.display(i)
         
-        return {"train/top1":top1.avg,
-                "train/loss":loss.item()}
+    return {"train/top1":top1.avg,
+            "train/loss":loss.item()}
 
 
 def validate(val_loader, model, criterion, args):
@@ -472,7 +474,8 @@ def validate(val_loader, model, criterion, args):
 def save_checkpoint(state, is_best, filename='checkpoint-ft.pth.tar'):
     torch.save(state, filename)
     if is_best:
-        shutil.copyfile(filename, 'model_best.pth.tar')
+        best_filename = filename.replace('.','-best.',1)
+        shutil.copyfile(filename, best_filename)
 
 
 def sanity_check(state_dict, pretrained_weights):

@@ -1,11 +1,4 @@
 import argparse
-import builtins
-import math
-import os
-import random
-import shutil
-import time
-import warnings
 
 from pathlib import Path
 
@@ -25,6 +18,7 @@ import torchvision.models as models
 from sklearn.metrics import confusion_matrix
 import pandas as pd
 import numpy as np
+import wandb
 
 import data_utils.trueface_dataset as trueface_dataset
 
@@ -80,6 +74,29 @@ def main():
 
     args = parser.parse_args()
 
+    dataset_compact_name = trueface_dataset.get_compact_name(args.data)
+    weights_compact_name = args.finetuned.removesuffix(".tar").removesuffix(".pth")
+    run_name = "testing {} on dataset {}".format(weights_compact_name,dataset_compact_name)
+
+    wandb.init(
+        # set the wandb project where this run will be logged
+        project="testing simsiam",
+        
+        name=run_name,
+
+        # track hyperparameters and run metadata
+        config={
+        "learning_rate": args.lr,
+        "architecture": "SimSiam",
+        "optimizer":"SGD",
+        "dataset": dataset_compact_name,
+        "real_samples_amount":args.real_amount,
+        "fake_samples_amount":args.fake_amount,
+        "image-size":args.image_size,
+        "precise-report":args.save_precise_report
+        }
+    )
+
     # create model
     print("=> creating model '{}'".format(args.arch))
     model = models.__dict__[args.arch](num_classes=2)
@@ -112,6 +129,8 @@ def main():
     y_true = torch.empty(0, dtype=torch.int).to(args.gpu)
     y_pred = torch.empty(0, dtype=torch.int).to(args.gpu)
 
+    test_results = {}
+
     with open("output-testing.log","w") as output_testing:
         corrects  = 0
         for i, (images, labels, path) in enumerate(test_loader):
@@ -140,9 +159,21 @@ def main():
                             columns = [i for i in ['real','fake']])
                 print('Confusion_Matrix:\n {}\n'.format(df_cm))
                 print('Confusion_Matrix:\n {}\n'.format(df_cm),file=output_testing)
+                test_results["conf matrix"] = df_cm
     
     accuracy = corrects / len(test_dataset)
     print(accuracy)
+    test_results["accuracy"] = accuracy
+    
+    results_artifact = wandb.Artifact("output-testing","log",
+                   "logging of model predictions")
+    results_artifact.add_file("output-testing.log")
+    
+    wandb.log_artifact(results_artifact)
+
+    wandb.log(test_results)
+
+    wandb.finish()
 
 if __name__ == '__main__':
     main()
