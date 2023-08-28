@@ -102,6 +102,7 @@ parser.add_argument("--image-size",default=None,type=int)
 parser.add_argument("--augmentations", default="pad",choices=["pad","resize","identity"])
 parser.add_argument("--crop-min",default=256,type=int)
 parser.add_argument("--crop-max",default=512,type=int)
+parser.add_argument("--no-augmentations",action="store_true")
 
 # simsiam specific configs:
 parser.add_argument('--dim', default=2048, type=int,
@@ -344,11 +345,19 @@ def main_worker(gpu, ngpus_per_node, args,config):
             fake_images_amount=args.fake_amount
         )
     elif args.data != None:
-        total_dataset = trueface_dataset.TruefaceTotal(
-            args.data, augmentations.ApplyDifferentTransforms(
+        t = None
+        if args.no_augmentations:
+            t = augmentations.ApplyDifferentTransforms(
+                transforms.Compose(augmentation_convert),
+                transforms.Compose(augmentation_convert)
+            )
+        else:
+            t = augmentations.ApplyDifferentTransforms(
                 transforms.Compose(augmentation_convert),
                 transforms.Compose(augmentation_presoc)
-            ),
+            )
+        total_dataset = trueface_dataset.TruefaceTotal(
+            args.data, t,
             real_amount=args.real_amount,
             fake_amount=args.fake_amount
         )
