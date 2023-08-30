@@ -37,7 +37,7 @@ class CompressToJPEGWithRandomParams:
         pass
 
     def __call__(self,x):
-        rand_quality = random.randint(75,90)
+        rand_quality = random.randint(31,100)
         rand_qtables_preset = random.choice(['web_low','web_high'])
         compressed_buffer = io.BytesIO()
         x.save(compressed_buffer,format='JPEG',

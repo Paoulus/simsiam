@@ -309,26 +309,24 @@ def main_worker(gpu, ngpus_per_node, args,config):
         augmentation_convert.insert(0,transforms.Resize(args.image_size))
 
     augmentation_presoc = []
-    if config["augmentations"] == "pad":
-        augmentation_presoc.append(augmentations.ResizeAtRandomLocationAndPad(args.crop_min,args.crop_max))
-    if config["augmentations"] == "resize":
-        augmentation_presoc.append(transforms.RandomResizedCrop(512,(0.02,1.)))
-    
+    #if config["augmentations"] == "pad":
+    #    augmentation_presoc.append(augmentations.ResizeAtRandomLocationAndPad(args.crop_min,args.crop_max))
+    #if config["augmentations"] == "resize":
+    #    augmentation_presoc.append(transforms.RandomResizedCrop(512,(0.02,1.)))
+
+    if args.image_size != None:
+        augmentation_presoc.append(transforms.Resize(args.image_size))
+       
     # custom augmentation meant to simulate the changes applied by image post processing
     augmentation_presoc.extend([
-        transforms.RandomApply([
-            transforms.ColorJitter(0.4, 0.4, 0.4, 0.1)  # not strengthened
-        ], p=0.8),
-        transforms.RandomGrayscale(p=0.2),
-        transforms.RandomApply([simsiam.loader.GaussianBlur([.1, 2.])], p=0.5),
+        transforms.RandomApply([simsiam.loader.GaussianBlur([.01, 3.])], p=0.5),
+        transforms.RandomApply([augmentations.CompressToJPEGWithRandomParams()],p=0.1),
+        transforms.RandomCrop(224),
         transforms.RandomHorizontalFlip(),
-        augmentations.CompressToJPEGWithRandomParams(),
         transforms.ToTensor(),
         normalize
     ])
 
-    if args.image_size != None:
-        augmentation_presoc.insert(6,transforms.Resize(args.image_size))
 
     print("Augmentations for second branch:")
     for aug in augmentation_presoc:
