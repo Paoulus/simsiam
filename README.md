@@ -5,7 +5,7 @@ Implementation of a classifier of real an fake images, based on [SimSiam paper](
 This version of simsiam training has been adapted to work with the [TrueFace dataset](https://mmlab.disi.unitn.it/resources/published-datasets#h.4bwcjdyr0h5i), respecting its folder structure. Please refer to the original repository if you want to use simsiam with more general purpose datasets.
 
 ## Installation
-All python dependencies are listed inside `requirements.txt`. To install them all, use `python -m pip install -r requirements.txt`
+All python dependencies are listed inside `requirements.txt`. To install them all, use `python -m pip install -r requirements.txt`. `wandb` integration is enabled, but can be disabled by setting the enviroment variable `WANDB_MODE=disabled`, thus no wandb account is required to run the training.
 
 ## Running the pretrain
 A complete pretrain of the network can be run with :
